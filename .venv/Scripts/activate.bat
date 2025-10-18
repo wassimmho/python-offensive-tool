@@ -8,7 +8,7 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-set VIRTUAL_ENV=c:\Users\HP\Desktop\WORK\Projects_Freelance\Try\python-offensive-tool\.venv
+set VIRTUAL_ENV=c:\Users\hp\OneDrive\Documents\python-offensive-tool\.venv
 
 if not defined PROMPT set PROMPT=$P$G
 
