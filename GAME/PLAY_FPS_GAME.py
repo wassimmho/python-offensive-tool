@@ -85,6 +85,86 @@ class Weapon:
         self.horizontal_recoil = recoil * 0.5
         self.recoil_recovery = 0.9  # How fast recoil recovers
         self.current_recoil = 0  # Current recoil offset
+        
+        # ULTRA REALISTIC MECHANICS
+        self.weight = self._calculate_weight(name)  # Weapon weight in kg
+        self.ergo = self._calculate_ergonomics(name)  # Ergonomics rating
+        self.ads_time = self._calculate_ads_time(name)  # Time to ADS
+        
+        # ADVANCED REALISTIC FEATURES
+        self.barrel_heat = 0  # 0-100, affects accuracy
+        self.durability = 100  # 0-100, affects jam chance
+        self.jam_chance = 0.001  # Base jam chance (0.1%)
+        self.maintenance_level = 100  # Needs cleaning
+        self.muzzle_velocity = self._get_muzzle_velocity(name)  # m/s
+        self.effective_range = self._get_effective_range(name)  # meters
+        self.bullet_drop = self._get_bullet_drop(name)  # gravity effect
+    
+    def _calculate_weight(self, name):
+        """Calculate realistic weapon weight"""
+        weights = {
+            'M4A1': 3.4, 'Barrett': 14.0, 'MP5': 2.5,
+            'SPAS-12': 4.2, 'Desert Eagle': 1.9, 'M249': 7.5
+        }
+        for key, weight in weights.items():
+            if key in name:
+                return weight
+        return 3.0
+    
+    def _calculate_ergonomics(self, name):
+        """Calculate ergonomics (0-100, higher = better handling)"""
+        ergo_map = {
+            'M4A1': 70, 'Barrett': 30, 'MP5': 85,
+            'SPAS-12': 50, 'Desert Eagle': 75, 'M249': 40
+        }
+        for key, ergo in ergo_map.items():
+            if key in name:
+                return ergo
+        return 60
+    
+    def _calculate_ads_time(self, name):
+        """Calculate ADS time in seconds"""
+        ads_times = {
+            'M4A1': 0.25, 'Barrett': 0.45, 'MP5': 0.18,
+            'SPAS-12': 0.35, 'Desert Eagle': 0.20, 'M249': 0.40
+        }
+        for key, ads_time in ads_times.items():
+            if key in name:
+                return ads_time
+        return 0.25
+    
+    def _get_muzzle_velocity(self, name):
+        """Get realistic muzzle velocity in m/s"""
+        velocities = {
+            'M4A1': 910, 'Barrett': 853, 'MP5': 400,
+            'SPAS-12': 430, 'Desert Eagle': 470, 'M249': 915
+        }
+        for key, vel in velocities.items():
+            if key in name:
+                return vel
+        return 800
+    
+    def _get_effective_range(self, name):
+        """Get effective range in meters"""
+        ranges = {
+            'M4A1': 500, 'Barrett': 1800, 'MP5': 200,
+            'SPAS-12': 40, 'Desert Eagle': 50, 'M249': 800
+        }
+        for key, range_val in ranges.items():
+            if key in name:
+                return range_val
+        return 300
+    
+    def _get_bullet_drop(self, name):
+        """Get bullet drop factor"""
+        drops = {
+            'M4A1': 0.8, 'Barrett': 0.5, 'MP5': 1.2,
+            'SPAS-12': 2.0, 'Desert Eagle': 1.5, 'M249': 0.7
+        }
+        for key, drop in drops.items():
+            if key in name:
+                return drop
+        return 1.0
     
     def can_shoot(self):
         current_time = time.time()
@@ -94,9 +174,26 @@ class Weapon:
     
     def shoot(self):
         if self.can_shoot():
+            # REALISTIC: Check for weapon jam
+            jam_chance = self.jam_chance * (1 + (100 - self.durability) / 100)
+            jam_chance *= (1 + self.barrel_heat / 200)  # Heat increases jam chance
+            
+            if random.random() < jam_chance:
+                print(f"❌ WEAPON JAMMED! {self.name} - Clear the jam!")
+                self.reloading = True  # Must clear jam
+                self.reload_start = time.time()
+                return False
+            
+            # Fire successfully
             self.current_ammo -= 1
             self.last_shot_time = time.time()
             self.shots_fired += 1
+            
+            # REALISTIC: Weapon degradation
+            self.barrel_heat = min(100, self.barrel_heat + 5)
+            self.durability = max(0, self.durability - 0.1)
+            self.maintenance_level = max(0, self.maintenance_level - 0.05)
+            
             return True
         return False
     
@@ -136,13 +233,13 @@ WEAPONS = {
 }
 
 class FPSGame:
-    """🎮 THE ULTIMATE ZOMBIE SURVIVAL FPS - PROFESSIONAL GRADE"""
+    """�️ TACTICAL COMBAT SIMULATOR - MILITARY GRADE REALISTIC FPS"""
     
     def __init__(self):
         self.screen_width = 1600  # Cinema-quality resolution
         self.screen_height = 900
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
-        pygame.display.set_caption("🧟 ULTIMATE ZOMBIE SURVIVAL - THE BEST FPS GAME")
+        pygame.display.set_caption("🎖️ TACTICAL COMBAT SIMULATOR - Operation Blackout")
         
         # Fonts
         self.font_huge = pygame.font.Font(None, 84)
@@ -157,8 +254,75 @@ class FPSGame:
         self.in_game = False
         self.in_team_selection = False  # NEW: Team selection screen
         self.in_server_connect = False  # NEW: Server connection screen
+        self.in_loadout = False  # NEW: Loadout selection screen
+        self.in_settings = False  # NEW: Settings screen
         self.menu_option = 0
         self.menu_options = ["⚡ PLAY GAME", "🎯 LOADOUT", "⚙️ SETTINGS", "🚪 EXIT"]
+        
+        # SETTINGS SYSTEM
+        self.settings_selection = 0  # Current selected setting
+        self.settings_scroll_offset = 0  # Scroll position for settings
+        self.settings = {
+            'master_volume': {'name': '🔊 Master Volume', 'value': 0.7, 'min': 0.0, 'max': 1.0, 'step': 0.1, 'type': 'slider'},
+            'music_volume': {'name': '🎵 Music Volume', 'value': 0.5, 'min': 0.0, 'max': 1.0, 'step': 0.1, 'type': 'slider'},
+            'sfx_volume': {'name': '🔫 SFX Volume', 'value': 0.8, 'min': 0.0, 'max': 1.0, 'step': 0.1, 'type': 'slider'},
+            'mouse_sensitivity': {'name': '🖱️ Mouse Sensitivity', 'value': 0.003, 'min': 0.001, 'max': 0.010, 'step': 0.001, 'type': 'slider'},
+            'fov': {'name': '👁️ Field of View', 'value': 90, 'min': 60, 'max': 120, 'step': 5, 'type': 'slider'},
+            'brightness': {'name': '💡 Brightness', 'value': 1.0, 'min': 0.5, 'max': 1.5, 'step': 0.1, 'type': 'slider'},
+            'show_fps': {'name': '📊 Show FPS', 'value': True, 'type': 'toggle'},
+            'vsync': {'name': '⚡ VSync', 'value': True, 'type': 'toggle'},
+            'particles': {'name': '✨ Particle Effects', 'value': True, 'type': 'toggle'},
+            'blood_effects': {'name': '🩸 Blood Effects', 'value': True, 'type': 'toggle'},
+            'screen_shake': {'name': '📳 Screen Shake', 'value': True, 'type': 'toggle'},
+            'crosshair_style': {'name': '🎯 Crosshair Style', 'value': 0, 'options': ['Classic', 'Dot', 'Cross', 'Circle'], 'type': 'choice'}
+        }
+        self.settings_keys = list(self.settings.keys())
+        
+        # LOADOUT SYSTEM
+        self.current_loadout = 0  # Selected loadout (0-3)
+        self.loadout_selection = 0  # Current selection in loadout menu
+        self.loadouts = [
+            {
+                'name': '🎯 ASSAULT',
+                'icon': '🔫',
+                'description': 'Balanced for medium range combat',
+                'primary': 'assault_rifle',
+                'secondary': 'pistol',
+                'equipment': 'frag_grenade',
+                'perk': 'Extra Ammo',
+                'stats': {'damage': 7, 'range': 8, 'mobility': 6, 'accuracy': 7}
+            },
+            {
+                'name': '🎯 SNIPER',
+                'icon': '🔭',
+                'description': 'Long range precision elimination',
+                'primary': 'sniper',
+                'secondary': 'pistol',
+                'equipment': 'claymore',
+                'perk': 'Steady Aim',
+                'stats': {'damage': 10, 'range': 10, 'mobility': 4, 'accuracy': 10}
+            },
+            {
+                'name': '🎯 RUN & GUN',
+                'icon': '⚡',
+                'description': 'High mobility close quarters',
+                'primary': 'smg',
+                'secondary': 'shotgun',
+                'equipment': 'flash_grenade',
+                'perk': 'Fast Movement',
+                'stats': {'damage': 6, 'range': 5, 'mobility': 10, 'accuracy': 6}
+            },
+            {
+                'name': '🎯 TANK',
+                'icon': '🛡️',
+                'description': 'Heavy firepower and armor',
+                'primary': 'lmg',
+                'secondary': 'shotgun',
+                'equipment': 'smoke_grenade',
+                'perk': 'Extra Armor',
+                'stats': {'damage': 9, 'range': 7, 'mobility': 4, 'accuracy': 5}
+            }
+        ]
         
         # SERVER CONNECTION
         self.server_ip = ""  # Server IP to connect to
@@ -178,6 +342,51 @@ class FPSGame:
         self.player_angle = 0
         self.mouse_sensitivity = 0.003
         
+        # COD STYLE MOVEMENT - Fast & Responsive
+        self.player_velocity_x = 0
+        self.player_velocity_y = 0
+        self.player_velocity_z = 0
+        self.walk_speed = 3.5  # COD-style fast walk
+        self.sprint_speed = 6.0  # Tactical sprint (fast like COD)
+        self.crouch_speed = 2.0  # Faster crouch movement
+        self.current_speed = self.walk_speed
+        self.is_sprinting = False
+        self.is_crouching = False
+        self.is_aiming = False  # ADS (Aim Down Sights)
+        self.stamina = 100  # Stamina for sprinting
+        self.max_stamina = 100
+        self.stamina_drain = 15  # Slower drain - can sprint longer (COD style)
+        self.stamina_regen = 25  # Fast recovery (COD style)
+        self.breath_sway = 0  # Weapon sway from breathing
+        self.movement_sway = 0  # Weapon sway from movement
+        
+        # COD DAMAGE SYSTEM - Balanced TTK (Time To Kill)
+        self.headshot_multiplier = 2.5  # COD headshot bonus
+        self.body_multiplier = 1.0  # Normal damage
+        self.limb_multiplier = 0.9  # Slight reduction
+        self.last_damage_time = 0
+        self.damage_direction = 0  # Direction damage came from
+        self.is_bleeding = False
+        self.bleed_damage = 1  # Less punishing (COD style)
+        self.bleed_timer = 0
+        
+        # ADVANCED INJURY SYSTEM - ULTRA REALISTIC
+        self.injuries = {
+            'head': {'damage': 0, 'bleeding': False, 'fracture': False},
+            'chest': {'damage': 0, 'bleeding': False, 'fracture': False},
+            'stomach': {'damage': 0, 'bleeding': False, 'fracture': False},
+            'left_arm': {'damage': 0, 'bleeding': False, 'fracture': False},
+            'right_arm': {'damage': 0, 'bleeding': False, 'fracture': False},
+            'left_leg': {'damage': 0, 'bleeding': False, 'fracture': False},
+            'right_leg': {'damage': 0, 'bleeding': False, 'fracture': False}
+        }
+        self.pain_level = 0  # 0-100, affects aim and movement
+        self.blood_loss = 0  # Accumulated blood loss
+        self.hydration = 100  # Water level
+        self.energy = 100  # Food/energy level
+        self.body_temperature = 37.0  # Normal body temp in Celsius
+        self.infection_risk = 0  # Untreated wounds get infected
+        
         # Weapon system
         self.current_weapon = 'pistol'  # Start with pistol only
         self.weapons = {name: Weapon(w.name, w.damage, w.fire_rate, w.max_ammo, w.reload_time, w.accuracy, w.recoil, w.penetration) 
@@ -185,6 +394,22 @@ class FPSGame:
         # Start with limited ammo
         self.weapons['pistol'].current_ammo = 12
         self.weapons['pistol'].magazine_count = 1
+        
+        # REALISTIC WEAPON MECHANICS
+        self.recoil_x = 0  # Current horizontal recoil
+        self.recoil_y = 0  # Current vertical recoil
+        self.recoil_recovery_speed = 10  # How fast recoil recovers
+        self.weapon_sway_x = 0
+        self.weapon_sway_y = 0
+        self.ads_time = 0.2  # Time to aim down sights
+        self.ads_progress = 0  # 0-1, current ADS animation progress
+        
+        # ULTRA REALISTIC HEALING SYSTEM
+        self.is_healing = False
+        self.healing_progress = 0
+        self.healing_type = None  # 'bandage', 'medkit', 'surgery'
+        self.medkits = 2  # Start with 2 medkits
+        self.bandages = 3  # Start with 3 bandages
         
         # ZOMBIE HORDE
         self.enemies = []
@@ -206,6 +431,12 @@ class FPSGame:
         self.headshots = 0
         self.accuracy_total = 0
         self.shots_total = 0
+        
+        # KILL MILESTONE REWARDS SYSTEM
+        self.kill_milestones = [5, 10, 25, 50, 100, 150, 200, 300, 500, 1000]
+        self.last_milestone_reached = 0
+        self.reward_notifications = []  # List of active reward notifications
+        self.total_rewards_earned = 0
         
         # Loot and pickups
         self.ammo_packs = []
@@ -242,12 +473,22 @@ class FPSGame:
         self.sun_position = (self.screen_width * 0.8, self.screen_height * 0.2)
         self._generate_map()
         
-        # SURVIVAL MECHANICS
+        # SURVIVAL MECHANICS - ULTRA REALISTIC
         self.weapon_attachments = {
             'scopes': ['Red Dot', 'ACOG', 'Sniper Scope'],
             'grips': ['Vertical Grip', 'Angled Grip'],
             'barrels': ['Suppressor', 'Compensator', 'Extended Barrel']
         }
+        
+        # ENVIRONMENTAL SURVIVAL SYSTEM
+        self.noise_level = 0  # 0-100, attracts enemies
+        self.visibility = 100  # Affected by weather/time
+        self.wind_speed = 0  # Affects bullet trajectory
+        self.wind_direction = 0  # In degrees
+        self.rain_intensity = 0  # 0-100
+        self.ambient_temperature = 20  # Celsius
+        self.time_of_day_hour = 12  # 0-24 hours
+        self.stealth_rating = 100  # How hidden you are
         self.current_attachments = {'scope': None, 'grip': None, 'barrel': None}
         self.perks = ['Fast Reload', 'Extra Ammo', 'Faster Sprint', 'Armor Piercing']
         self.active_perks = []
@@ -383,10 +624,11 @@ class FPSGame:
         self.multikill_bonus = 0
         self.last_multikill_time = 0
         
-        # RESPAWN SYSTEM - NO BUGS!
-        self.invincible = False  # Invincibility after respawn
+        # RESPAWN SYSTEM - HARDCORE MODE (NO INVINCIBILITY!)
+        self.invincible = False  # NO invincibility - death has consequences
         self.invincible_timer = 0
         self.respawn_flash = 0  # Visual flash effect when respawning
+        self.lives = 3  # Only 3 lives before GAME OVER
         
         # Input
         self.keys = set()
@@ -790,10 +1032,17 @@ class FPSGame:
         # Reset combat stats
         self.killstreak = 0
         
-        # Grant 3 seconds of invincibility
+        # COD STYLE: Fast respawn - 3 second protection
         self.invincible = True
-        self.invincible_timer = 3.0  # 3 seconds
+        self.invincible_timer = 3.0  # 3 seconds spawn protection (COD style)
         self.respawn_flash = 1.0
+        
+        # Lose a life
+        self.lives -= 1
+        if self.lives <= 0:
+            print("💀💀💀 GAME OVER - FINAL KILLCAM 💀💀💀")
+            self.state = 'menu'  # Back to menu
+            self.lives = 3  # Reset for next game
         
         # Clear screen effects
         self.damage_vignette = 0
@@ -818,11 +1067,11 @@ class FPSGame:
                 enemy['z'] = self.player_z + math.sin(angle) * 400
         
         # Respawn message
-        print("💀 You died! Respawning with 3 seconds invincibility...")
+        print(f"☠️ KIA! [{self.lives} lives left] Respawning in 3... 2... 1...")
     
     def spawn_enemies(self, count):
-        """🧟 Spawn TEAM-BASED ENEMIES"""
-        zombie_types = ['walker', 'runner', 'tank', 'screamer']
+        """🎖️ Spawn HOSTILE COMBATANTS - TACTICAL UNITS"""
+        enemy_types = ['terrorist', 'elite', 'heavy', 'sniper']
         
         # Determine enemy team (opposite of player's team)
         if self.player_team == 'BLUE':
@@ -833,22 +1082,22 @@ class FPSGame:
             enemy_team = 'RED'  # Default if no team selected yet
         
         for i in range(count):
-            # Boss zombie every 5 waves
+            # Commander unit every 5 waves
             if self.zombie_wave % 5 == 0 and i == 0 and not self.boss_spawned:
-                zombie_type = 'boss'
+                enemy_type = 'commander'
                 health, speed, damage = 500, 40, 50
                 self.boss_spawned = True
                 self.boss_health = health
             else:
-                zombie_type = random.choice(zombie_types)
-                if zombie_type == 'walker':
-                    health, speed, damage = 80, 30, 20
-                elif zombie_type == 'runner':
-                    health, speed, damage = 50, 120, 15
-                elif zombie_type == 'screamer':  # NEW: Attracts other zombies
-                    health, speed, damage = 60, 50, 10
-                else:  # tank
-                    health, speed, damage = 200, 20, 40
+                enemy_type = random.choice(enemy_types)
+                if enemy_type == 'terrorist':
+                    health, speed, damage = 100, 40, 30  # Standard Infantry
+                elif enemy_type == 'elite':
+                    health, speed, damage = 70, 150, 25  # Fast Operators
+                elif enemy_type == 'sniper':
+                    health, speed, damage = 80, 35, 40  # Long Range Specialist
+                else:  # heavy
+                    health, speed, damage = 250, 30, 50  # Heavy Gunner
                     
             # Spawn at random position far from player
             angle = random.uniform(0, 2 * math.pi)
@@ -857,9 +1106,9 @@ class FPSGame:
             spawn_z = self.player_z + math.sin(angle) * distance
                 
             enemy = {
-                'id': f'zombie_{self.zombie_wave}_{i}',
-                'type': zombie_type,
-                'team': enemy_team,  # NEW: Enemy team
+                'id': f'hostile_{self.zombie_wave}_{i}',
+                'type': enemy_type,
+                'team': enemy_team,  # Hostile team
                 'x': spawn_x,
                 'y': 0,
                 'z': spawn_z,
@@ -868,7 +1117,7 @@ class FPSGame:
                 'armor': 0,
                 'angle': random.uniform(0, 2 * math.pi),
                 'weapon': None,
-                'ai_state': 'wander',  # wander, chase, attack, scream
+                'ai_state': 'patrol',  # patrol, chase, attack, cover
                 'speed': speed,
                 'damage': damage,
                 'last_attack': 0,
@@ -876,11 +1125,11 @@ class FPSGame:
                 'animation_frame': random.uniform(0, 2 * math.pi),
                 'is_dead': False,
                 'blood_level': 0,
-                'aggro_range': 400 if zombie_type == 'runner' else 300,
+                'aggro_range': 400 if enemy_type == 'elite' else 300,
                 'can_see_player': False,
                 'last_seen_player_pos': (0, 0),
                 'path_finding': [],  # Smart pathfinding
-                'is_boss': zombie_type == 'boss'
+                'is_boss': enemy_type == 'commander'
             }
             self.enemies.append(enemy)
     
@@ -939,6 +1188,70 @@ class FPSGame:
                     elif event.key == pygame.K_ESCAPE:
                         # Back to menu
                         self.in_team_selection = False
+                        self.in_menu = True
+                elif self.in_loadout:
+                    # Loadout selection input
+                    if event.key == pygame.K_UP:
+                        self.loadout_selection = (self.loadout_selection - 1) % len(self.loadouts)
+                    elif event.key == pygame.K_DOWN:
+                        self.loadout_selection = (self.loadout_selection + 1) % len(self.loadouts)
+                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Confirm loadout selection
+                        self.current_loadout = self.loadout_selection
+                        loadout = self.loadouts[self.current_loadout]
+                        # Apply loadout to player
+                        self.current_weapon = loadout['primary']
+                        # Give full ammo for selected weapons
+                        if loadout['primary'] in self.weapons:
+                            self.weapons[loadout['primary']].current_ammo = self.weapons[loadout['primary']].max_ammo
+                            self.weapons[loadout['primary']].magazine_count = 5
+                        if loadout['secondary'] in self.weapons:
+                            self.weapons[loadout['secondary']].current_ammo = self.weapons[loadout['secondary']].max_ammo
+                            self.weapons[loadout['secondary']].magazine_count = 3
+                        # Apply perk bonuses
+                        if loadout['perk'] == 'Extra Ammo':
+                            for weapon in self.weapons.values():
+                                weapon.magazine_count += 3
+                        elif loadout['perk'] == 'Extra Armor':
+                            self.player_armor = 50
+                        # Show confirmation and return to menu
+                        self.in_loadout = False
+                        self.in_menu = True
+                    elif event.key == pygame.K_ESCAPE:
+                        # Back to menu
+                        self.in_loadout = False
+                        self.in_menu = True
+                elif self.in_settings:
+                    # Settings input
+                    if event.key == pygame.K_UP:
+                        self.settings_selection = (self.settings_selection - 1) % len(self.settings_keys)
+                        # Auto-scroll to keep selection visible
+                        self._update_settings_scroll()
+                    elif event.key == pygame.K_DOWN:
+                        self.settings_selection = (self.settings_selection + 1) % len(self.settings_keys)
+                        # Auto-scroll to keep selection visible
+                        self._update_settings_scroll()
+                    elif event.key == pygame.K_LEFT:
+                        # Decrease value
+                        self._adjust_setting(-1)
+                    elif event.key == pygame.K_RIGHT:
+                        # Increase value
+                        self._adjust_setting(1)
+                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Toggle for boolean settings
+                        key = self.settings_keys[self.settings_selection]
+                        setting = self.settings[key]
+                        if setting['type'] == 'toggle':
+                            setting['value'] = not setting['value']
+                            self._apply_settings()
+                        elif setting['type'] == 'choice':
+                            # Cycle through options
+                            setting['value'] = (setting['value'] + 1) % len(setting['options'])
+                            self._apply_settings()
+                    elif event.key == pygame.K_ESCAPE:
+                        # Save and return to menu
+                        self._apply_settings()
+                        self.in_settings = False
                         self.in_menu = True
                 elif self.in_server_connect:
                     # Server connection input
@@ -1009,6 +1322,20 @@ class FPSGame:
                         self.show_scoreboard = not getattr(self, 'show_scoreboard', False)
                     elif event.key == pygame.K_p:  # NEW: Toggle camera mode
                         self._toggle_camera_mode()
+                    elif event.key == pygame.K_h:  # HEAL with medkit
+                        if self.medkits > 0 and self.player_health < 100 and not self.is_healing:
+                            self.is_healing = True
+                            self.healing_type = 'medkit'
+                            self.healing_progress = 0
+                            self.medkits -= 1
+                            print(f"🏥 Using medkit... ({self.medkits} left)")
+                    elif event.key == pygame.K_b:  # BANDAGE (stop bleeding)
+                        if self.bandages > 0 and self.player_health < 100 and not self.is_healing:
+                            self.is_healing = True
+                            self.healing_type = 'bandage'
+                            self.healing_progress = 0
+                            self.bandages -= 1
+                            print(f"🩹 Applying bandage... ({self.bandages} left)")
                     elif event.key == pygame.K_ESCAPE:
                         # Return to menu
                         self.in_menu = True
@@ -1039,11 +1366,27 @@ class FPSGame:
                 if self.in_menu:
                     # Menu click detection
                     self._handle_menu_click(event.pos)
+                elif self.in_loadout:
+                    # Loadout click detection
+                    self._handle_loadout_click(event.pos)
+                elif self.in_settings:
+                    # Settings click detection
+                    self._handle_settings_click(event.pos)
+                    # Mouse wheel scrolling in settings
+                    if event.button == 4:  # Scroll up
+                        self.settings_scroll_offset = max(0, self.settings_scroll_offset - 1)
+                    elif event.button == 5:  # Scroll down
+                        max_scroll = max(0, len(self.settings_keys) - 6)  # Show 6 items at a time
+                        self.settings_scroll_offset = min(max_scroll, self.settings_scroll_offset + 1)
                 else:
                     if event.button == 1:  # Left click - shoot
                         self._shoot()
                     elif event.button == 3:  # Right click - aim
                         self.is_aiming = True
+                    elif event.button == 4:  # Scroll up
+                        pass  # Could be used for weapon switching
+                    elif event.button == 5:  # Scroll down
+                        pass  # Could be used for weapon switching
             
             elif event.type == pygame.MOUSEBUTTONUP:
                 if not self.in_menu:
@@ -1059,11 +1402,15 @@ class FPSGame:
             self.server_ip = ""
             self.connection_status = ""
         elif self.menu_option == 1:  # Loadout (weapon selection)
-            # Show loadout screen - for now just display message
-            pass
+            # Show loadout screen
+            self.in_menu = False
+            self.in_loadout = True
+            self.loadout_selection = self.current_loadout
         elif self.menu_option == 2:  # Settings
             # Show settings screen
-            pass
+            self.in_menu = False
+            self.in_settings = True
+            self.settings_selection = 0
         elif self.menu_option == 3:  # Exit
             self.running = False
     
@@ -1082,6 +1429,177 @@ class FPSGame:
                 self.menu_option = i
                 self._select_menu_option()
                 break
+    
+    def _handle_loadout_click(self, pos):
+        """Handle loadout screen clicks"""
+        card_width = 700
+        card_height = 140
+        card_spacing = 20
+        start_y = 180
+        card_x = self.screen_width//2 - card_width//2
+        
+        # Check loadout cards
+        for i in range(len(self.loadouts)):
+            y = start_y + i * (card_height + card_spacing)
+            card_rect = pygame.Rect(card_x, y, card_width, card_height)
+            if card_rect.collidepoint(pos):
+                self.loadout_selection = i
+                # Auto-confirm on click
+                self.current_loadout = self.loadout_selection
+                loadout = self.loadouts[self.current_loadout]
+                # Apply loadout to player
+                self.current_weapon = loadout['primary']
+                # Give full ammo for selected weapons
+                if loadout['primary'] in self.weapons:
+                    self.weapons[loadout['primary']].current_ammo = self.weapons[loadout['primary']].max_ammo
+                    self.weapons[loadout['primary']].magazine_count = 5
+                if loadout['secondary'] in self.weapons:
+                    self.weapons[loadout['secondary']].current_ammo = self.weapons[loadout['secondary']].max_ammo
+                    self.weapons[loadout['secondary']].magazine_count = 3
+                # Apply perk bonuses
+                if loadout['perk'] == 'Extra Ammo':
+                    for weapon in self.weapons.values():
+                        weapon.magazine_count += 3
+                elif loadout['perk'] == 'Extra Armor':
+                    self.player_armor = 50
+                # Play sound
+                self.play_sound('reload')
+                break
+        
+        # Check back button
+        back_button_rect = pygame.Rect(50, self.screen_height - 100, 200, 60)
+        if back_button_rect.collidepoint(pos):
+            self.in_loadout = False
+            self.in_menu = True
+    
+    def _handle_settings_click(self, pos):
+        """Handle settings screen clicks"""
+        setting_height = 80
+        start_y = 180
+        setting_x = self.screen_width//2 - 400
+        
+        # Check each VISIBLE setting (accounting for scroll)
+        visible_start = self.settings_scroll_offset
+        visible_end = min(visible_start + 6, len(self.settings_keys))  # Show 6 items
+        
+        for i in range(visible_start, visible_end):
+            key = self.settings_keys[i]
+            # Adjust y position based on scroll offset
+            y = start_y + (i - self.settings_scroll_offset) * setting_height
+            setting_rect = pygame.Rect(setting_x, y, 800, 70)
+            
+            if setting_rect.collidepoint(pos):
+                self.settings_selection = i
+                setting = self.settings[key]
+                
+                # Check if clicking on slider
+                if setting['type'] == 'slider':
+                    slider_x = setting_x + 450
+                    slider_width = 300
+                    if slider_x <= pos[0] <= slider_x + slider_width:
+                        # Calculate new value based on click position
+                        ratio = (pos[0] - slider_x) / slider_width
+                        new_value = setting['min'] + ratio * (setting['max'] - setting['min'])
+                        setting['value'] = round(new_value / setting['step']) * setting['step']
+                        setting['value'] = max(setting['min'], min(setting['max'], setting['value']))
+                        self._apply_settings()
+                        self.play_sound('reload')
+                
+                # Check if clicking on toggle
+                elif setting['type'] == 'toggle':
+                    toggle_x = setting_x + 600
+                    if toggle_x <= pos[0] <= toggle_x + 100:
+                        setting['value'] = not setting['value']
+                        self._apply_settings()
+                        self.play_sound('reload')
+                
+                # Check if clicking on choice arrows
+                elif setting['type'] == 'choice':
+                    left_arrow_x = setting_x + 500
+                    right_arrow_x = setting_x + 720
+                    if left_arrow_x <= pos[0] <= left_arrow_x + 40:
+                        setting['value'] = (setting['value'] - 1) % len(setting['options'])
+                        self._apply_settings()
+                        self.play_sound('reload')
+                    elif right_arrow_x <= pos[0] <= right_arrow_x + 40:
+                        setting['value'] = (setting['value'] + 1) % len(setting['options'])
+                        self._apply_settings()
+                        self.play_sound('reload')
+                break
+        
+        # Check back button
+        back_button_rect = pygame.Rect(50, self.screen_height - 100, 200, 60)
+        if back_button_rect.collidepoint(pos):
+            self._apply_settings()
+            self.in_settings = False
+            self.in_menu = True
+        
+        # Check reset button
+        reset_button_rect = pygame.Rect(self.screen_width - 250, self.screen_height - 100, 200, 60)
+        if reset_button_rect.collidepoint(pos):
+            self._reset_settings()
+            self.play_sound('reload')
+    
+    def _adjust_setting(self, direction):
+        """Adjust selected setting value"""
+        key = self.settings_keys[self.settings_selection]
+        setting = self.settings[key]
+        
+        if setting['type'] == 'slider':
+            setting['value'] += direction * setting['step']
+            setting['value'] = max(setting['min'], min(setting['max'], setting['value']))
+            self._apply_settings()
+        elif setting['type'] == 'choice':
+            setting['value'] = (setting['value'] + direction) % len(setting['options'])
+            self._apply_settings()
+    
+    def _apply_settings(self):
+        """Apply current settings to game"""
+        # Apply mouse sensitivity
+        self.mouse_sensitivity = self.settings['mouse_sensitivity']['value']
+        
+        # Apply volume settings
+        if hasattr(pygame.mixer, 'music'):
+            try:
+                pygame.mixer.music.set_volume(self.settings['music_volume']['value'] * self.settings['master_volume']['value'])
+            except:
+                pass
+        
+        # Apply FOV (field of view would require camera matrix changes)
+        # This is a placeholder - actual FOV implementation would be more complex
+        self.fov = self.settings['fov']['value']
+    
+    def _reset_settings(self):
+        """Reset all settings to defaults"""
+        self.settings['master_volume']['value'] = 0.7
+        self.settings['music_volume']['value'] = 0.5
+        self.settings['sfx_volume']['value'] = 0.8
+        self.settings['mouse_sensitivity']['value'] = 0.003
+        self.settings['fov']['value'] = 90
+        self.settings['brightness']['value'] = 1.0
+        self.settings['show_fps']['value'] = True
+        self.settings['vsync']['value'] = True
+        self.settings['particles']['value'] = True
+        self.settings['blood_effects']['value'] = True
+        self.settings['screen_shake']['value'] = True
+        self.settings['crosshair_style']['value'] = 0
+        self._apply_settings()
+    
+    def _update_settings_scroll(self):
+        """Auto-scroll to keep selected setting visible"""
+        visible_items = 6  # Number of settings visible at once
+        
+        # If selection is above visible area, scroll up
+        if self.settings_selection < self.settings_scroll_offset:
+            self.settings_scroll_offset = self.settings_selection
+        
+        # If selection is below visible area, scroll down
+        elif self.settings_selection >= self.settings_scroll_offset + visible_items:
+            self.settings_scroll_offset = self.settings_selection - visible_items + 1
+        
+        # Ensure scroll offset is within bounds
+        max_scroll = max(0, len(self.settings_keys) - visible_items)
+        self.settings_scroll_offset = max(0, min(self.settings_scroll_offset, max_scroll))
     
     def _update(self, dt):
         """Update game logic with ULTRA-REALISTIC physics"""
@@ -1120,6 +1638,15 @@ class FPSGame:
         # === REALISTIC MOVEMENT with MOMENTUM ===
         base_speed = 180  # Base movement speed
         
+        # === WEAPON WEIGHT PENALTY ===
+        current_weapon = self.weapons.get(self.current_weapon)
+        if current_weapon:
+            # Heavy weapons slow you down (Barrett 14kg = -70% speed!)
+            weight_penalty = 1.0 - (current_weapon.weight / 20.0)
+            weight_penalty = max(0.3, weight_penalty)  # Minimum 30% speed
+        else:
+            weight_penalty = 1.0
+        
         # Calculate speed modifiers
         if self.is_crouching:
             speed_mult = self.crouch_speed_mult
@@ -1129,6 +1656,9 @@ class FPSGame:
             speed_mult = self.aim_walk_speed
         else:
             speed_mult = 1.0
+        
+        # Apply weapon weight penalty
+        speed_mult *= weight_penalty
         
         # Apply accuracy penalty when moving/jumping
         if is_moving:
@@ -1281,6 +1811,53 @@ class FPSGame:
             # Ensure player stays on ground
             self.player_y = 50 if not self.is_crouching else 35
         
+        # === WEAPON SWAY based on WEIGHT and STAMINA ===
+        if current_weapon:
+            # More sway with heavy weapons and low stamina
+            base_sway = (current_weapon.weight / 10.0) * (1.0 - self.stamina / 100.0)
+            movement_sway = 1.5 if is_moving else 1.0
+            total_sway = base_sway * movement_sway
+            
+            # Apply random sway
+            self.weapon_sway_x += random.uniform(-total_sway, total_sway) * dt * 50
+            self.weapon_sway_y += random.uniform(-total_sway, total_sway) * dt * 50
+            
+            # Dampen sway (return to center)
+            self.weapon_sway_x *= 0.9
+            self.weapon_sway_y *= 0.9
+            
+            # Limit max sway
+            max_sway = 0.5
+            self.weapon_sway_x = max(-max_sway, min(max_sway, self.weapon_sway_x))
+            self.weapon_sway_y = max(-max_sway, min(max_sway, self.weapon_sway_y))
+        
+        # === HEALING SYSTEM ===
+        if self.is_healing:
+            healing_speeds = {
+                'bandage': 2.0,  # 2 seconds, +25 HP, stops bleeding
+                'medkit': 5.0,   # 5 seconds, +50 HP
+                'surgery': 10.0  # 10 seconds, full heal + stops bleeding
+            }
+            
+            heal_time = healing_speeds.get(self.healing_type, 3.0)
+            self.healing_progress += dt / heal_time
+            
+            if self.healing_progress >= 1.0:
+                # Healing complete!
+                if self.healing_type == 'bandage':
+                    self.player_health = min(100, self.player_health + 25)
+                    self.is_bleeding = False
+                elif self.healing_type == 'medkit':
+                    self.player_health = min(100, self.player_health + 50)
+                elif self.healing_type == 'surgery':
+                    self.player_health = 100
+                    self.is_bleeding = False
+                
+                self.is_healing = False
+                self.healing_progress = 0
+                self.healing_type = None
+                print(f"✅ Healing complete! HP: {self.player_health}")
+        
         # Update weapons
         for weapon in self.weapons.values():
             weapon.update()
@@ -1288,12 +1865,14 @@ class FPSGame:
         # === CONTINUOUS FIRE FOR AUTOMATIC WEAPONS ===
         # Check if left mouse button is held down for automatic fire
         if not self.in_menu and not self.in_team_selection and not self.in_server_connect:
-            mouse_buttons = pygame.mouse.get_pressed()
-            if mouse_buttons[0]:  # Left mouse button held
-                weapon = self.weapons[self.current_weapon]
-                # Allow automatic fire for automatic weapons
-                if weapon.auto and weapon.can_shoot():
-                    self._shoot()
+            # Can't shoot while healing!
+            if not self.is_healing:
+                mouse_buttons = pygame.mouse.get_pressed()
+                if mouse_buttons[0]:  # Left mouse button held
+                    weapon = self.weapons[self.current_weapon]
+                    # Allow automatic fire for automatic weapons
+                    if weapon.auto and weapon.can_shoot():
+                        self._shoot()
         
         # Update bullets
         self._update_bullets(dt)
@@ -1306,6 +1885,135 @@ class FPSGame:
         
         # Update effects
         self._update_effects(dt)
+        
+        # ULTRA REALISTIC SYSTEMS
+        self._update_realistic_mechanics(dt)
+    
+    def _update_realistic_mechanics(self, dt):
+        """🎯 ULTRA REALISTIC SURVIVAL & COMBAT MECHANICS"""
+        
+        # === WEAPON MAINTENANCE ===
+        current_weapon = self.weapons.get(self.current_weapon)
+        if current_weapon:
+            # Barrel cooling (affects accuracy)
+            current_weapon.barrel_heat = max(0, current_weapon.barrel_heat - 2 * dt)
+            
+            # Durability slowly degrades
+            if random.random() < 0.001:  # Random wear
+                current_weapon.durability = max(0, current_weapon.durability - 0.5)
+        
+        # === INJURY SYSTEM ===
+        # Calculate total pain from all injuries
+        total_injury_damage = sum(injury['damage'] for injury in self.injuries.values())
+        self.pain_level = min(100, total_injury_damage * 2)
+        
+        # Pain affects everything
+        if self.pain_level > 50:
+            # Severe pain: slower movement, worse aim
+            pain_factor = (100 - self.pain_level) / 100
+            self.current_speed *= pain_factor
+        
+        # Bleeding from injuries
+        bleeding_parts = [p for p, inj in self.injuries.items() if inj['bleeding']]
+        if bleeding_parts:
+            self.is_bleeding = True
+            self.blood_loss += len(bleeding_parts) * 2 * dt  # Multiple bleeds = faster death
+            self.player_health -= len(bleeding_parts) * self.bleed_damage * dt
+        
+        # Fractures affect mobility
+        leg_fractures = (self.injuries['left_leg']['fracture'] or 
+                        self.injuries['right_leg']['fracture'])
+        if leg_fractures:
+            self.walk_speed = 1.0  # Very slow with broken leg
+            self.sprint_speed = 1.5  # Can barely run
+        
+        # Arm fractures affect aim
+        arm_fractures = (self.injuries['left_arm']['fracture'] or 
+                        self.injuries['right_arm']['fracture'])
+        if arm_fractures:
+            self.weapon_sway_x *= 2.0  # Double weapon sway
+            self.weapon_sway_y *= 2.0
+        
+        # === SURVIVAL NEEDS ===
+        # Hydration drains over time
+        self.hydration = max(0, self.hydration - 1.5 * dt)
+        if self.hydration < 30:
+            # Dehydration: stamina penalty
+            self.max_stamina = 50
+        elif self.hydration < 60:
+            self.max_stamina = 75
+        else:
+            self.max_stamina = 100
+        
+        # Energy/hunger drains faster when moving
+        is_moving = (pygame.K_w in self.keys or pygame.K_s in self.keys or 
+                    pygame.K_a in self.keys or pygame.K_d in self.keys)
+        energy_drain = 2.0 if is_moving else 0.8
+        self.energy = max(0, self.energy - energy_drain * dt)
+        
+        if self.energy < 20:
+            # Starvation: health slowly drains
+            self.player_health -= 0.5 * dt
+        
+        # === ENVIRONMENTAL EFFECTS ===
+        # Temperature affects performance
+        temp_diff = abs(self.body_temperature - 37.0)
+        if temp_diff > 2.0:
+            # Hypothermia or fever
+            self.stamina_drain = 40  # Faster exhaustion
+            if temp_diff > 4.0:
+                self.player_health -= 1 * dt  # Taking damage
+        
+        # Adjust body temp toward ambient
+        if self.body_temperature > self.ambient_temperature:
+            self.body_temperature -= 0.5 * dt
+        elif self.body_temperature < self.ambient_temperature:
+            self.body_temperature += 0.5 * dt
+        
+        # === NOISE SYSTEM ===
+        # Noise attracts enemies
+        if self.is_sprinting:
+            self.noise_level = min(100, self.noise_level + 50 * dt)
+        else:
+            self.noise_level = max(0, self.noise_level - 30 * dt)
+        
+        # Shooting makes LOTS of noise
+        if current_weapon and current_weapon.shots_fired > 0:
+            weapon_loudness = {
+                'pistol': 60, 'assault_rifle': 85, 'sniper': 95,
+                'smg': 70, 'shotgun': 90, 'lmg': 88
+            }
+            loudness = weapon_loudness.get(self.current_weapon, 75)
+            # Suppressor reduces noise
+            barrel_attachment = self.current_attachments.get('barrel', '')
+            if barrel_attachment and 'Suppressor' in str(barrel_attachment):
+                loudness *= 0.3
+            self.noise_level = min(100, self.noise_level + loudness)
+        
+        # === INFECTION RISK ===
+        # Untreated injuries get infected
+        for body_part, injury in self.injuries.items():
+            if injury['bleeding'] or injury['damage'] > 20:
+                self.infection_risk += 0.5 * dt
+        
+        if self.infection_risk > 50:
+            # Infection: fever and health drain
+            self.body_temperature += 0.1 * dt
+            self.player_health -= 0.3 * dt
+        
+        # === WEATHER EFFECTS ===
+        # Rain affects visibility and sound
+        if self.weather == 'rain':
+            self.visibility = 60  # Reduced visibility
+            self.noise_level *= 0.7  # Rain masks sounds
+        elif self.weather == 'fog':
+            self.visibility = 40  # Very low visibility
+        else:
+            self.visibility = 100
+        
+        # Wind affects bullet trajectory
+        self.wind_speed = random.uniform(0, 15)  # m/s
+        self.wind_direction = random.uniform(0, 360)
     
     def _shoot(self):
         """Fire current weapon with ULTRA-REALISTIC ballistics"""
@@ -1415,6 +2123,22 @@ class FPSGame:
             if self.current_weapon in ['sniper', 'shotgun', 'lmg']:
                 self.screen_shake *= 1.5
     
+    def _get_body_part_hit(self, bullet_y, enemy_y):
+        """Determine which body part was hit - ULTRA REALISTIC"""
+        hit_height = enemy_y - bullet_y
+        
+        # Body zones (from top to bottom)
+        if hit_height < 5:
+            return 'head', 3.0  # Head: 3.0x damage (instant kill potential)
+        elif hit_height < 15:
+            return 'chest', 1.0  # Chest/Upper torso: 1.0x damage (vital organs)
+        elif hit_height < 25:
+            return 'stomach', 0.85  # Stomach/Lower torso: 0.85x damage
+        elif hit_height < 35:
+            return 'arms', 0.6  # Arms: 0.6x damage (causes bleeding)
+        else:
+            return 'legs', 0.7  # Legs: 0.7x damage (slows movement)
+    
     def _update_bullets(self, dt):
         """Update bullets with REALISTIC PHYSICS"""
         for bullet in self.bullets[:]:
@@ -1447,13 +2171,12 @@ class FPSGame:
                 
                 # Larger hit radius for easier hitting (increased from 30 to 50)
                 if dist < 50:  # Hit radius
-                    # Check for headshot (top 20% of enemy)
-                    is_headshot = bullet['y'] < enemy['y'] - 10
+                    # === ULTRA REALISTIC DAMAGE ZONES ===
+                    body_part, damage_mult = self._get_body_part_hit(bullet['y'], enemy['y'])
+                    is_headshot = (body_part == 'head')
                     
-                    # Calculate damage with headshot bonus
-                    damage = bullet['damage']
-                    if is_headshot:
-                        damage *= self.headshot_bonus
+                    # Calculate damage with body part multiplier
+                    damage = bullet['damage'] * damage_mult
                     
                     # Apply penetration to armor
                     if enemy['armor'] > 0:
@@ -1506,6 +2229,9 @@ class FPSGame:
                         # Track headshot kills
                         if is_headshot:
                             self.headshot_kills += 1
+                        
+                        # 🎁 CHECK FOR KILL MILESTONE REWARDS
+                        self._check_kill_milestones()
                         
                         # 🎯 COMBO SYSTEM
                         if current_time - self.combo_timer < 3.0:
@@ -1787,6 +2513,110 @@ class FPSGame:
         if not self.achievements_list['survivor']['unlocked'] and self.survival_time >= 600:
             self._unlock_achievement('survivor')
     
+    def _check_kill_milestones(self):
+        """🎁 Check if player reached a kill milestone and give rewards"""
+        for milestone in self.kill_milestones:
+            if self.kills >= milestone and milestone > self.last_milestone_reached:
+                self.last_milestone_reached = milestone
+                self._give_kill_reward(milestone)
+                break
+    
+    def _give_kill_reward(self, kills):
+        """🎁 Give rewards based on kill milestone"""
+        current_time = time.time()
+        
+        # Calculate rewards based on milestone
+        if kills <= 10:
+            health_reward = 25
+            armor_reward = 15
+            ammo_mult = 0.5
+            reward_tier = "BRONZE"
+            tier_color = (205, 127, 50)
+        elif kills <= 50:
+            health_reward = 50
+            armor_reward = 30
+            ammo_mult = 1.0
+            reward_tier = "SILVER"
+            tier_color = (192, 192, 192)
+        elif kills <= 100:
+            health_reward = 75
+            armor_reward = 50
+            ammo_mult = 1.5
+            reward_tier = "GOLD"
+            tier_color = (255, 215, 0)
+        elif kills <= 300:
+            health_reward = 100
+            armor_reward = 75
+            ammo_mult = 2.0
+            reward_tier = "PLATINUM"
+            tier_color = (229, 228, 226)
+        else:
+            health_reward = 100
+            armor_reward = 100
+            ammo_mult = 3.0
+            reward_tier = "DIAMOND"
+            tier_color = (185, 242, 255)
+        
+        # Apply rewards
+        rewards_text = []
+        
+        # Health reward
+        if self.player_health < self.player_max_health:
+            old_health = self.player_health
+            self.player_health = min(self.player_max_health, self.player_health + health_reward)
+            actual_health = int(self.player_health - old_health)
+            rewards_text.append(f"+{actual_health} HP")
+        
+        # Armor reward
+        old_armor = self.player_armor
+        self.player_armor = min(100, self.player_armor + armor_reward)
+        actual_armor = int(self.player_armor - old_armor)
+        if actual_armor > 0:
+            rewards_text.append(f"+{actual_armor} ARMOR")
+        
+        # Ammo for all weapons
+        ammo_given = 0
+        for weapon_name, weapon in self.weapons.items():
+            if weapon.magazine_count < 10:  # Don't overflow
+                mags_to_give = int(2 * ammo_mult)
+                weapon.magazine_count += mags_to_give
+                ammo_given += mags_to_give
+        
+        if ammo_given > 0:
+            rewards_text.append(f"+{ammo_given} MAGAZINES")
+        
+        # Score bonus
+        score_bonus = kills * 100
+        self.score += score_bonus
+        rewards_text.append(f"+{score_bonus} SCORE")
+        
+        # XP bonus
+        xp_bonus = kills * 50
+        self.xp += xp_bonus
+        rewards_text.append(f"+{xp_bonus} XP")
+        
+        # Track total rewards
+        self.total_rewards_earned += 1
+        
+        # Create epic notification
+        self.reward_notifications.append({
+            'kills': kills,
+            'tier': reward_tier,
+            'tier_color': tier_color,
+            'rewards': rewards_text,
+            'time': current_time,
+            'duration': 8.0,  # Show for 8 seconds
+            'alpha': 255
+        })
+        
+        # Play reward sound (if available)
+        if self.sound_enabled:
+            self.play_sound('achievement')
+        
+        print(f"\n🎁 MILESTONE REWARD!")
+        print(f"✨ {kills} KILLS - {reward_tier} TIER")
+        print(f"💰 Rewards: {', '.join(rewards_text)}")
+    
     def _unlock_achievement(self, achievement_id):
         """Unlock an achievement with epic animation"""
         if achievement_id not in self.achievements_list:
@@ -1888,7 +2718,8 @@ class FPSGame:
             
             # Apply buff effects
             if buff['type'] == 'speed':
-                self.speed *= 1.3
+                # Speed boost affects sprint speed
+                pass  # Speed is handled by sprint_multiplier
             elif buff['type'] == 'damage':
                 self.score_multiplier = 2.0
             elif buff['type'] == 'god_mode':
@@ -1980,6 +2811,10 @@ class FPSGame:
         """Render the game"""
         if self.in_menu:
             self._render_menu()
+        elif self.in_loadout:
+            self._render_loadout()
+        elif self.in_settings:
+            self._render_settings()
         elif self.in_server_connect:
             self._render_server_connect()
         elif self.in_team_selection:
@@ -2224,138 +3059,228 @@ class FPSGame:
             pygame.draw.circle(self.screen, (80, 120, 150, particle_alpha), (px, py), particle_size)
     
     def _render_server_connect(self):
-        """🌐 RENDER SERVER CONNECTION SCREEN"""
+        """🌐 ULTRA MODERN SERVER CONNECTION GUI - REDESIGNED"""
         current_time = pygame.time.get_ticks()
+        pulse = abs(math.sin(current_time / 600))
         
-        # === BACKGROUND ===
+        # === PREMIUM DARK BACKGROUND WITH HEXAGON GRID ===
         for y in range(self.screen_height):
             ratio = y / self.screen_height
-            r = int(15 + (25 - 15) * ratio)
-            g = int(18 + (28 - 18) * ratio)
-            b = int(22 + (35 - 22) * ratio)
+            r = int(10 + (20 - 10) * ratio)
+            g = int(12 + (24 - 12) * ratio)
+            b = int(18 + (32 - 18) * ratio)
             pygame.draw.line(self.screen, (r, g, b), (0, y), (self.screen_width, y))
         
-        # Animated network grid background
-        grid_spacing = 50
-        for x in range(0, self.screen_width, grid_spacing):
-            alpha = int(15 + 10 * abs(math.sin((current_time / 1000) + x / 100)))
-            pygame.draw.line(self.screen, (40, 60, 80, alpha), (x, 0), (x, self.screen_height), 1)
-        for y in range(0, self.screen_height, grid_spacing):
-            alpha = int(15 + 10 * abs(math.sin((current_time / 1000) + y / 100)))
-            pygame.draw.line(self.screen, (40, 60, 80, alpha), (0, y), (self.screen_width, y), 1)
+        # Animated hexagon grid pattern (futuristic)
+        hex_spacing = 60
+        for x in range(-30, self.screen_width + 30, hex_spacing):
+            for y in range(-30, self.screen_height + 30, int(hex_spacing * 0.866)):
+                offset_x = (y // int(hex_spacing * 0.866)) % 2 * (hex_spacing // 2)
+                hex_x = x + offset_x
+                hex_y = y
+                alpha = int(8 + 12 * abs(math.sin((current_time / 2000) + hex_x / 150 + hex_y / 150)))
+                size = 10
+                points = []
+                for i in range(6):
+                    angle = math.pi / 3 * i
+                    px = hex_x + size * math.cos(angle)
+                    py = hex_y + size * math.sin(angle)
+                    points.append((px, py))
+                if len(points) > 2:
+                    try:
+                        pygame.draw.aalines(self.screen, (30, 50, 80), True, points, 1)
+                    except:
+                        pass
         
-        # === TITLE ===
-        title_font = pygame.font.Font(None, 96)
-        title = title_font.render("SERVER CONNECTION", True, (255, 255, 255))
-        title_shadow = title_font.render("SERVER CONNECTION", True, (0, 0, 0))
-        self.screen.blit(title_shadow, (self.screen_width//2 - title.get_width()//2 + 3, 83))
-        self.screen.blit(title, (self.screen_width//2 - title.get_width()//2, 80))
+        # Floating particles
+        for i in range(15):
+            particle_x = (self.screen_width // 2 + int(200 * math.sin(current_time / 1000 + i))) % self.screen_width
+            particle_y = (i * 50 + int(30 * math.cos(current_time / 800 + i))) % self.screen_height
+            pygame.draw.circle(self.screen, (50, 100, 200), (particle_x, particle_y), 2)
         
-        # Server icon with pulse
-        pulse = abs(math.sin(current_time / 500))
-        icon_size = 100 + int(20 * pulse)
-        icon_y = 200
+        # === ULTRA MODERN TITLE WITH GLOW ===
+        title_y = 60
+        title_font = pygame.font.Font(None, 110)
+        title_text = "SERVER CONNECTION"
         
-        # Server icon background
-        pygame.draw.circle(self.screen, (30, 50, 80), (self.screen_width//2, icon_y), icon_size//2)
-        pygame.draw.circle(self.screen, (0, 150, 255, int(100 + 155 * pulse)), (self.screen_width//2, icon_y), icon_size//2, 4)
+        # Multi-layer shadow
+        for i in range(5, 0, -1):
+            shadow = title_font.render(title_text, True, (0, 20, 40))
+            self.screen.blit(shadow, (self.screen_width//2 - shadow.get_width()//2 + i, title_y + i))
         
-        # Server symbol (database/network icon)
-        symbol_font = pygame.font.Font(None, 80)
-        server_symbol = symbol_font.render("🌐", True, (100, 200, 255))
-        self.screen.blit(server_symbol, (self.screen_width//2 - 30, icon_y - 35))
+        # Glow effect
+        title_glow = title_font.render(title_text, True, (0, 180, 255))
+        self.screen.blit(title_glow, (self.screen_width//2 - title_glow.get_width()//2 - 2, title_y - 2))
         
-        # === INPUT PANEL ===
-        panel_width = 700
-        panel_height = 350
+        # Main title
+        title = title_font.render(title_text, True, (255, 255, 255))
+        self.screen.blit(title, (self.screen_width//2 - title.get_width()//2, title_y))
+        
+        # === PREMIUM SERVER ICON WITH NETWORK ANIMATION ===
+        icon_y = 190
+        icon_size = int(110 + 15 * pulse)
+        
+        # Multi-layer glow rings
+        for i in range(4):
+            ring_size = icon_size + i * 25
+            ring_alpha = int((80 - i * 15) * (0.7 + 0.3 * pulse))
+            pygame.draw.circle(self.screen, (0, 150, 255), 
+                             (self.screen_width//2, icon_y), ring_size//2, 2)
+        
+        # Icon background
+        pygame.draw.circle(self.screen, (20, 40, 70), (self.screen_width//2, icon_y), icon_size//2 - 10)
+        pygame.draw.circle(self.screen, (0, 120, 220), (self.screen_width//2, icon_y), icon_size//2 - 10, 4)
+        
+        # Animated network nodes
+        for i in range(6):
+            angle = (current_time / 1500 + i * math.pi / 3) % (2 * math.pi)
+            node_x = self.screen_width//2 + int(40 * math.cos(angle))
+            node_y = icon_y + int(40 * math.sin(angle))
+            pygame.draw.circle(self.screen, (0, 200, 255), (node_x, node_y), 5)
+            pygame.draw.line(self.screen, (0, 150, 255), 
+                           (self.screen_width//2, icon_y), (node_x, node_y), 2)
+        
+        # Center hub
+        pygame.draw.circle(self.screen, (0, 220, 255), (self.screen_width//2, icon_y), 12)
+        pygame.draw.circle(self.screen, (255, 255, 255), (self.screen_width//2, icon_y), 6)
+        
+        # === PREMIUM INPUT PANEL WITH GLASS EFFECT ===
+        panel_width = 750
+        panel_height = 380
         panel_x = self.screen_width//2 - panel_width//2
-        panel_y = 320
+        panel_y = 310
         
-        # Panel background with glow
-        panel_surf = pygame.Surface((panel_width + 20, panel_height + 20), pygame.SRCALPHA)
-        for i in range(5):
-            glow_alpha = int((50 - i * 10) * (0.5 + 0.5 * pulse))
-            pygame.draw.rect(panel_surf, (0, 100, 200, glow_alpha), 
-                           (i, i, panel_width + 20 - i*2, panel_height + 20 - i*2), border_radius=20)
-        self.screen.blit(panel_surf, (panel_x - 10, panel_y - 10))
+        # Multi-layer panel glow (more intense)
+        for i in range(8):
+            glow_offset = i * 3
+            glow_alpha = int((60 - i * 6) * (0.6 + 0.4 * pulse))
+            glow_rect = (panel_x - glow_offset, panel_y - glow_offset, 
+                        panel_width + glow_offset * 2, panel_height + glow_offset * 2)
+            pygame.draw.rect(self.screen, (0, 120, 220), glow_rect, border_radius=22)
         
-        # Panel main
-        pygame.draw.rect(self.screen, (25, 35, 50, 240), (panel_x, panel_y, panel_width, panel_height), border_radius=15)
-        pygame.draw.rect(self.screen, (0, 150, 255), (panel_x, panel_y, panel_width, panel_height), 3, border_radius=15)
+        # Glass panel effect
+        panel_surf = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+        pygame.draw.rect(panel_surf, (18, 28, 45, 250), (0, 0, panel_width, panel_height), border_radius=18)
+        self.screen.blit(panel_surf, (panel_x, panel_y))
         
-        # === IP INPUT FIELD ===
-        label_y = panel_y + 50
-        label = self.font_large.render("Server IP Address:", True, (200, 220, 255))
-        self.screen.blit(label, (panel_x + 50, label_y))
+        # Panel borders (dual-layer)
+        pygame.draw.rect(self.screen, (0, 180, 255), (panel_x, panel_y, panel_width, panel_height), 4, border_radius=18)
+        pygame.draw.rect(self.screen, (100, 200, 255), (panel_x + 2, panel_y + 2, panel_width - 4, panel_height - 4), 2, border_radius=16)
         
-        # Input box
-        input_box_y = label_y + 60
-        input_box_width = panel_width - 100
-        input_box_height = 70
+        # === MODERN INPUT FIELD WITH 3D EFFECT ===
+        label_y = panel_y + 60
+        label_font = pygame.font.Font(None, 44)
+        label = label_font.render("Server IP Address:", True, (180, 220, 255))
+        self.screen.blit(label, (panel_x + 60, label_y))
         
-        # Input box background
-        pygame.draw.rect(self.screen, (15, 25, 40), 
-                        (panel_x + 50, input_box_y, input_box_width, input_box_height), border_radius=10)
+        # Input box with shadow (3D effect)
+        input_y = label_y + 65
+        input_width = panel_width - 120
+        input_height = 80
+        input_x = panel_x + 60
         
-        # Input box border (animated)
-        border_color = (0, 200, 255) if self.server_ip else (80, 100, 130)
-        border_pulse = int(150 + 105 * pulse) if self.server_ip else 130
-        pygame.draw.rect(self.screen, (*border_color[:2], border_pulse), 
-                        (panel_x + 50, input_box_y, input_box_width, input_box_height), 3, border_radius=10)
+        # Shadow
+        pygame.draw.rect(self.screen, (5, 10, 20), 
+                        (input_x + 4, input_y + 4, input_width, input_height), border_radius=12)
         
-        # Display IP text
+        # Input background (dark)
+        pygame.draw.rect(self.screen, (25, 38, 58), 
+                        (input_x, input_y, input_width, input_height), border_radius=12)
+        
+        # Animated glowing border
+        border_brightness = int(180 + 75 * pulse)
+        border_color = (0, border_brightness, 255) if self.server_ip else (60, 90, 140)
+        pygame.draw.rect(self.screen, border_color, 
+                        (input_x, input_y, input_width, input_height), 3, border_radius=12)
+        
+        # IP text (larger font)
+        ip_font = pygame.font.Font(None, 52)
         ip_text = self.server_ip if self.server_ip else "192.168.1.100"
-        ip_color = (255, 255, 255) if self.server_ip else (100, 120, 150)
-        ip_surf = self.font_large.render(ip_text, True, ip_color)
-        self.screen.blit(ip_surf, (panel_x + 70, input_box_y + 18))
+        ip_color = (255, 255, 255) if self.server_ip else (90, 110, 140)
+        ip_surf = ip_font.render(ip_text, True, ip_color)
+        self.screen.blit(ip_surf, (input_x + 25, input_y + 22))
         
-        # Blinking cursor
-        if int(current_time / 500) % 2 == 0:
-            cursor_x = panel_x + 70 + ip_surf.get_width() + 5
-            pygame.draw.line(self.screen, (255, 255, 255), 
-                           (cursor_x, input_box_y + 15), 
-                           (cursor_x, input_box_y + input_box_height - 15), 3)
+        # Smooth animated cursor
+        if int(current_time / 530) % 2 == 0:
+            cursor_x = input_x + 25 + ip_surf.get_width() + 8
+            cursor_alpha = int(200 + 55 * pulse)
+            pygame.draw.rect(self.screen, (0, 220, 255), 
+                           (cursor_x, input_y + 18, 3, input_height - 36))
         
-        # === EXAMPLES ===
-        examples_y = input_box_y + input_box_height + 30
-        examples_label = self.font_small.render("Examples:", True, (150, 170, 200))
-        self.screen.blit(examples_label, (panel_x + 50, examples_y))
+        # === EXAMPLES SECTION (MODERN STYLE) ===
+        examples_y = input_y + input_height + 45
+        examples_title = pygame.font.Font(None, 36).render("Examples:", True, (140, 180, 220))
+        self.screen.blit(examples_title, (input_x, examples_y))
         
         examples = [
-            "• 127.0.0.1 (Localhost)",
-            "• 192.168.1.100 (Local Network)",
-            "• game.server.com (Domain)"
+            ("127.0.0.1", "Localhost"),
+            ("192.168.1.100", "Local Network"),
+            ("game.server.com", "Domain")
         ]
         
-        for i, example in enumerate(examples):
-            ex_surf = self.font_small.render(example, True, (120, 140, 180))
-            self.screen.blit(ex_surf, (panel_x + 70, examples_y + 30 + i * 28))
+        ex_font = pygame.font.Font(None, 32)
+        for i, (ip, desc) in enumerate(examples):
+            ex_y = examples_y + 40 + i * 32
+            # Modern bullet point (circle)
+            pygame.draw.circle(self.screen, (0, 180, 255), (input_x + 18, ex_y + 10), 4)
+            # Example text with IP and description
+            ex_text = f"{ip} ({desc})"
+            ex_surf = ex_font.render(ex_text, True, (110, 150, 200))
+            self.screen.blit(ex_surf, (input_x + 35, ex_y))
         
-        # === CONNECTION STATUS ===
+        # === STATUS MESSAGE WITH BACKGROUND ===
         if self.connection_status:
-            status_y = panel_y + panel_height - 60
-            if "✓" in self.connection_status:
-                status_color = (0, 255, 100)
-            elif "⚠️" in self.connection_status:
-                status_color = (255, 200, 0)
-            else:
-                status_color = (255, 100, 100)
+            status_y = panel_y + panel_height - 65
+            status_font = pygame.font.Font(None, 42)
             
-            status_surf = self.font_medium.render(self.connection_status, True, status_color)
+            if "✓" in self.connection_status or "Connected" in self.connection_status:
+                status_color = (0, 255, 120)
+                icon = "✓"
+            elif "⚠️" in self.connection_status or "warn" in self.connection_status.lower():
+                status_color = (255, 200, 50)
+                icon = "⚠"
+            else:
+                status_color = (255, 80, 80)
+                icon = "✗"
+            
+            # Status with icon and background
+            status_text = f"{icon} {self.connection_status}"
+            status_surf = status_font.render(status_text, True, status_color)
+            status_bg_width = status_surf.get_width() + 40
+            status_bg_x = panel_x + panel_width//2 - status_bg_width//2
+            pygame.draw.rect(self.screen, (status_color[0]//5, status_color[1]//5, status_color[2]//5),
+                           (status_bg_x, status_y - 10, status_bg_width, 50), border_radius=8)
             self.screen.blit(status_surf, (panel_x + panel_width//2 - status_surf.get_width()//2, status_y))
         
-        # === INSTRUCTIONS ===
-        inst_y = self.screen_height - 150
+        # === BOTTOM INSTRUCTIONS (MODERN KEY BUTTONS) ===
+        inst_y = self.screen_height - 140
+        inst_font = pygame.font.Font(None, 38)
         
         instructions = [
-            "Type the server IP address",
-            "ENTER - Connect to Server",
-            "ESC - Back to Menu"
+            ("Type the server IP address", (150, 180, 220)),
+            ("ENTER", (0, 220, 255), "Connect to Server", (180, 200, 230)),
+            ("ESC", (255, 100, 100), "Back to Menu", (180, 200, 230))
         ]
         
         for i, inst in enumerate(instructions):
-            inst_surf = self.font_medium.render(inst, True, (180, 200, 220))
-            self.screen.blit(inst_surf, (self.screen_width//2 - inst_surf.get_width()//2, inst_y + i * 35))
+            y_pos = inst_y + i * 40
+            if len(inst) == 2:
+                # Simple text
+                text, color = inst
+                surf = inst_font.render(text, True, color)
+                self.screen.blit(surf, (self.screen_width//2 - surf.get_width()//2, y_pos))
+            else:
+                # Key button + action
+                key, key_color, action, action_color = inst
+                key_surf = pygame.font.Font(None, 36).render(key, True, (255, 255, 255))
+                key_bg_width = key_surf.get_width() + 30
+                key_x = self.screen_width//2 - 100
+                # Draw key button
+                pygame.draw.rect(self.screen, key_color, (key_x, y_pos - 5, key_bg_width, 35), border_radius=6)
+                self.screen.blit(key_surf, (key_x + 15, y_pos))
+                # Draw action text
+                action_surf = inst_font.render(action, True, action_color)
+                self.screen.blit(action_surf, (key_x + key_bg_width + 15, y_pos))
         
         # === CONNECTING ANIMATION ===
         if "Connected" in self.connection_status:
@@ -2515,6 +3440,1412 @@ class FPSGame:
         for i, inst in enumerate(instructions):
             inst_surf = self.font_medium.render(inst, True, (200, 210, 220))
             self.screen.blit(inst_surf, (self.screen_width//2 - inst_surf.get_width()//2, inst_y + i * 35))
+    
+    def _draw_weapon_icon(self, surface, weapon_name, x, y, scale=1.0):
+        """Draw a detailed weapon icon"""
+        # Brighter colors for visibility
+        gun_metal = (120, 130, 145)
+        barrel_color = (90, 95, 105)
+        accent_color = (150, 160, 175)
+        highlight = (180, 190, 205)
+        dark_metal = (70, 75, 85)
+        
+        if weapon_name in ['rifle', 'assault_rifle']:
+            # AR-15 style rifle
+            # Stock
+            pygame.draw.rect(surface, gun_metal, (x, y+15, 15*scale, 8*scale))
+            pygame.draw.rect(surface, dark_metal, (x, y+15, 15*scale, 8*scale), 1)
+            # Receiver (main body)
+            pygame.draw.rect(surface, gun_metal, (x+10, y+12, 35*scale, 12*scale))
+            pygame.draw.rect(surface, highlight, (x+10, y+12, 35*scale, 12*scale), 1)
+            # Barrel
+            pygame.draw.rect(surface, barrel_color, (x+40, y+15, 40*scale, 6*scale))
+            pygame.draw.line(surface, (50, 55, 65), (x+40, y+15), (x+80, y+15), 1)
+            # Magazine (with color accent)
+            pygame.draw.rect(surface, (180, 160, 100), (x+25, y+24, 10*scale, 15*scale))
+            pygame.draw.rect(surface, dark_metal, (x+25, y+24, 10*scale, 15*scale), 1)
+            # Grip
+            pygame.draw.rect(surface, dark_metal, (x+30, y+24, 6*scale, 8*scale))
+            # Rail/sight
+            pygame.draw.line(surface, highlight, (x+20, y+12), (x+60, y+12), 2)
+            # Red dot sight
+            pygame.draw.circle(surface, (255, 50, 50), (x+25, y+10), 2)
+            # Handguard details
+            for i in range(3):
+                pygame.draw.line(surface, (100, 110, 125), (x+40+i*5, y+14), (x+40+i*5, y+22), 1)
+                
+        elif weapon_name == 'sniper':
+            # Bolt-action sniper rifle
+            # Stock (wooden)
+            pygame.draw.polygon(surface, (140, 100, 70), [(x, y+18), (x+20, y+15), (x+20, y+25), (x, y+22)])
+            pygame.draw.polygon(surface, dark_metal, [(x, y+18), (x+20, y+15), (x+20, y+25), (x, y+22)], 1)
+            # Receiver
+            pygame.draw.rect(surface, gun_metal, (x+15, y+13, 25*scale, 14*scale))
+            pygame.draw.rect(surface, highlight, (x+15, y+13, 25*scale, 14*scale), 1)
+            # Long barrel
+            pygame.draw.rect(surface, barrel_color, (x+35, y+16, 50*scale, 5*scale))
+            pygame.draw.line(surface, (50, 55, 65), (x+35, y+16), (x+85, y+16), 1)
+            # Scope (large with blue tint)
+            pygame.draw.ellipse(surface, dark_metal, (x+25, y+8, 25*scale, 8*scale))
+            pygame.draw.circle(surface, (60, 120, 180), (x+37, y+12), 5)
+            pygame.draw.circle(surface, (100, 160, 220), (x+37, y+12), 3)
+            pygame.draw.circle(surface, (255, 100, 100), (x+37, y+12), 1)  # Crosshair
+            # Bipod
+            pygame.draw.line(surface, gun_metal, (x+60, y+21), (x+55, y+28), 2)
+            pygame.draw.line(surface, gun_metal, (x+70, y+21), (x+75, y+28), 2)
+            # Magazine
+            pygame.draw.rect(surface, (180, 160, 100), (x+30, y+27, 8*scale, 10*scale))
+            pygame.draw.rect(surface, dark_metal, (x+30, y+27, 8*scale, 10*scale), 1)
+            
+        elif weapon_name == 'smg':
+            # Compact SMG (MP5 style)
+            # Receiver (compact)
+            pygame.draw.rect(surface, gun_metal, (x+10, y+15, 30*scale, 10*scale))
+            pygame.draw.rect(surface, highlight, (x+10, y+15, 30*scale, 10*scale), 1)
+            # Short barrel
+            pygame.draw.rect(surface, barrel_color, (x+35, y+17, 25*scale, 6*scale))
+            pygame.draw.line(surface, (50, 55, 65), (x+35, y+17), (x+60, y+17), 1)
+            # Magazine (vertical with yellow accent)
+            pygame.draw.rect(surface, (180, 160, 100), (x+22, y+25, 8*scale, 18*scale))
+            pygame.draw.rect(surface, dark_metal, (x+22, y+25, 8*scale, 18*scale), 1)
+            # Stock (folded)
+            pygame.draw.line(surface, dark_metal, (x+5, y+18), (x+12, y+18), 3)
+            pygame.draw.line(surface, dark_metal, (x+5, y+22), (x+12, y+22), 3)
+            # Grip
+            pygame.draw.rect(surface, gun_metal, (x+25, y+25, 5*scale, 8*scale))
+            # Front sight
+            pygame.draw.rect(surface, highlight, (x+55, y+15, 2, 4))
+            # Suppressor
+            pygame.draw.rect(surface, (35, 38, 45), (x+60, y+18, 12*scale, 4*scale))
+            
+        elif weapon_name == 'lmg':
+            # Heavy machine gun
+            # Stock (thick)
+            pygame.draw.rect(surface, gun_metal, (x, y+16, 18*scale, 10*scale))
+            pygame.draw.rect(surface, highlight, (x, y+16, 18*scale, 10*scale), 1)
+            # Large receiver
+            pygame.draw.rect(surface, gun_metal, (x+15, y+14, 30*scale, 14*scale))
+            pygame.draw.rect(surface, highlight, (x+15, y+14, 30*scale, 14*scale), 1)
+            # Heavy barrel
+            pygame.draw.rect(surface, barrel_color, (x+40, y+17, 45*scale, 7*scale))
+            pygame.draw.line(surface, (50, 55, 65), (x+40, y+17), (x+85, y+17), 1)
+            # Barrel cooling holes (orange hot)
+            for i in range(5):
+                pygame.draw.circle(surface, (255, 100, 50), (x+50+i*7, y+20), 2)
+            # Box magazine (large with ammo color)
+            pygame.draw.rect(surface, (200, 180, 120), (x+25, y+28, 20*scale, 15*scale))
+            pygame.draw.rect(surface, dark_metal, (x+25, y+28, 20*scale, 15*scale), 2)
+            pygame.draw.rect(surface, (180, 160, 100), (x+27, y+30, 16*scale, 11*scale))
+            # Bipod
+            pygame.draw.line(surface, gun_metal, (x+60, y+24), (x+55, y+32), 3)
+            pygame.draw.line(surface, gun_metal, (x+70, y+24), (x+75, y+32), 3)
+            # Grip
+            pygame.draw.rect(surface, dark_metal, (x+35, y+28, 6*scale, 10*scale))
+            
+        elif weapon_name == 'shotgun':
+            # Pump-action shotgun
+            # Stock (wooden color)
+            pygame.draw.rect(surface, (140, 100, 70), (x, y+16, 20*scale, 9*scale))
+            pygame.draw.rect(surface, dark_metal, (x, y+16, 20*scale, 9*scale), 1)
+            # Receiver
+            pygame.draw.rect(surface, gun_metal, (x+18, y+15, 22*scale, 11*scale))
+            pygame.draw.rect(surface, highlight, (x+18, y+15, 22*scale, 11*scale), 1)
+            # Barrel (large diameter)
+            pygame.draw.rect(surface, barrel_color, (x+35, y+16, 40*scale, 9*scale))
+            pygame.draw.line(surface, (50, 55, 65), (x+35, y+16), (x+75, y+16), 2)
+            # Pump grip (wooden)
+            pygame.draw.rect(surface, (120, 90, 60), (x+45, y+17, 12*scale, 7*scale))
+            pygame.draw.rect(surface, dark_metal, (x+45, y+17, 12*scale, 7*scale), 1)
+            pygame.draw.line(surface, dark_metal, (x+45, y+24), (x+45, y+28), 2)
+            # Front sight
+            pygame.draw.rect(surface, (255, 200, 100), (x+70, y+14, 2, 5))
+            # Shell holder on side (red shells)
+            for i in range(4):
+                pygame.draw.circle(surface, (220, 60, 60), (x+25+i*7, y+12), 2)
+                pygame.draw.circle(surface, (255, 200, 100), (x+25+i*7, y+12), 1)
+            
+        elif weapon_name == 'pistol':
+            # Semi-auto pistol
+            # Slide
+            pygame.draw.rect(surface, gun_metal, (x+15, y+18, 30*scale, 7*scale))
+            pygame.draw.rect(surface, highlight, (x+15, y+18, 30*scale, 7*scale), 1)
+            pygame.draw.line(surface, (50, 55, 65), (x+15, y+18), (x+45, y+18), 1)
+            # Frame (with tan/FDE color)
+            pygame.draw.rect(surface, (160, 140, 110), (x+18, y+23, 22*scale, 8*scale))
+            pygame.draw.rect(surface, dark_metal, (x+18, y+23, 22*scale, 8*scale), 1)
+            # Grip
+            pygame.draw.polygon(surface, (140, 120, 90), [(x+20, y+31), (x+28, y+31), (x+25, y+40), (x+20, y+40)])
+            pygame.draw.polygon(surface, dark_metal, [(x+20, y+31), (x+28, y+31), (x+25, y+40), (x+20, y+40)], 1)
+            # Barrel
+            pygame.draw.rect(surface, barrel_color, (x+43, y+19, 12*scale, 5*scale))
+            # Trigger guard
+            pygame.draw.arc(surface, dark_metal, (x+25, y+28, 10, 8), 0, 3.14, 2)
+            # Sights (tritium green dots)
+            pygame.draw.rect(surface, (100, 255, 100), (x+22, y+16, 2, 3))
+            pygame.draw.rect(surface, (100, 255, 100), (x+40, y+16, 2, 3))
+            # Magazine release
+            pygame.draw.circle(surface, (255, 200, 100), (x+23, y+27), 2)
+            
+        else:
+            # Default gun shape
+            pygame.draw.rect(surface, gun_metal, (x+10, y+15, 40*scale, 12*scale))
+            pygame.draw.rect(surface, barrel_color, (x+45, y+17, 20*scale, 8*scale))
+    
+    def _render_loadout(self):
+        """🎯 MODERN CLEAN LOADOUT SCREEN - Sleek & Professional"""
+        current_time = pygame.time.get_ticks()
+        
+        # === CLEAN MODERN BACKGROUND ===
+        # Smooth gradient background
+        for y in range(self.screen_height):
+            ratio = y / self.screen_height
+            r = int(18 + (28 - 18) * ratio)
+            g = int(20 + (32 - 20) * ratio)
+            b = int(25 + (40 - 25) * ratio)
+            pygame.draw.line(self.screen, (r, g, b), (0, y), (self.screen_width, y))
+        
+        # Minimal grid pattern
+        grid_spacing = 100
+        for x in range(0, self.screen_width, grid_spacing):
+            pygame.draw.line(self.screen, (35, 40, 48), (x, 0), (x, self.screen_height), 1)
+        for y in range(0, self.screen_height, grid_spacing):
+            pygame.draw.line(self.screen, (35, 40, 48), (0, y), (self.screen_width, y), 1)
+        
+        # === SIMPLE TITLE ===
+        title_font = pygame.font.Font(None, 72)
+        title = "LOADOUT SELECTION"
+        
+        # Simple shadow
+        shadow = title_font.render(title, True, (10, 10, 10))
+        self.screen.blit(shadow, (self.screen_width//2 - shadow.get_width()//2 + 2, 42))
+        
+        # Main title
+        title_surf = title_font.render(title, True, (220, 230, 240))
+        self.screen.blit(title_surf, (self.screen_width//2 - title_surf.get_width()//2, 40))
+        
+        # Subtitle
+        subtitle_font = pygame.font.Font(None, 26)
+        subtitle = "Choose your combat class"
+        subtitle_surf = subtitle_font.render(subtitle, True, (140, 150, 160))
+        self.screen.blit(subtitle_surf, (self.screen_width//2 - subtitle_surf.get_width()//2, 95))
+        
+        # === CLEAN LOADOUT CARDS ===
+        card_width = 750
+        card_height = 165
+        card_spacing = 15
+        start_y = 150
+        card_x = self.screen_width//2 - card_width//2
+        
+        for i, loadout in enumerate(self.loadouts):
+            y = start_y + i * (card_height + card_spacing)
+            is_selected = (i == self.loadout_selection)
+            is_current = (i == self.current_loadout)
+            
+            # === CLEAN CARD DESIGN ===
+            if is_selected:
+                # Selected card - subtle highlight
+                pygame.draw.rect(self.screen, (45, 55, 70), (card_x, y, card_width, card_height), border_radius=12)
+                pygame.draw.rect(self.screen, (100, 180, 255), (card_x, y, card_width, card_height), 3, border_radius=12)
+                
+                # Left accent bar
+                pygame.draw.rect(self.screen, (100, 180, 255), (card_x, y, 6, card_height), border_radius=12)
+                
+            elif is_current:
+                # Equipped card - gold accent
+                pygame.draw.rect(self.screen, (40, 45, 55), (card_x, y, card_width, card_height), border_radius=12)
+                pygame.draw.rect(self.screen, (255, 200, 80), (card_x, y, card_width, card_height), 3, border_radius=12)
+                
+                # Left accent bar
+                pygame.draw.rect(self.screen, (255, 200, 80), (card_x, y, 6, card_height), border_radius=12)
+                
+            else:
+                # Normal card
+                pygame.draw.rect(self.screen, (30, 35, 45), (card_x, y, card_width, card_height), border_radius=12)
+                pygame.draw.rect(self.screen, (60, 70, 85), (card_x, y, card_width, card_height), 2, border_radius=12)
+            
+            # === ICON ===
+            icon_x = card_x + 70
+            icon_y = y + card_height//2
+            
+            # Icon background circle
+            if is_selected:
+                pygame.draw.circle(self.screen, (60, 100, 140), (icon_x, icon_y), 45)
+                pygame.draw.circle(self.screen, (100, 180, 255), (icon_x, icon_y), 45, 2)
+            elif is_current:
+                pygame.draw.circle(self.screen, (80, 70, 40), (icon_x, icon_y), 45)
+                pygame.draw.circle(self.screen, (255, 200, 80), (icon_x, icon_y), 45, 2)
+            else:
+                pygame.draw.circle(self.screen, (40, 50, 65), (icon_x, icon_y), 45)
+                pygame.draw.circle(self.screen, (70, 80, 100), (icon_x, icon_y), 45, 2)
+            
+            # Icon
+            icon_font = pygame.font.Font(None, 65)
+            icon_color = (255, 255, 255) if (is_selected or is_current) else (180, 190, 200)
+            icon_surf = icon_font.render(loadout['icon'], True, icon_color)
+            self.screen.blit(icon_surf, (icon_x - icon_surf.get_width()//2, icon_y - icon_surf.get_height()//2))
+            
+            # === TEXT CONTENT ===
+            text_x = card_x + 140
+            
+            # Loadout name
+            name_font = pygame.font.Font(None, 48)
+            if is_current:
+                name_color = (255, 200, 80)
+            elif is_selected:
+                name_color = (200, 230, 255)
+            else:
+                name_color = (200, 210, 220)
+            
+            name_surf = name_font.render(loadout['name'], True, name_color)
+            self.screen.blit(name_surf, (text_x, y + 18))
+            
+            # Description
+            desc_surf = self.font_medium.render(loadout['description'], True, (150, 160, 170))
+            self.screen.blit(desc_surf, (text_x, y + 58))
+            
+            # === WEAPON DISPLAY WITH IMAGES ===
+            weapons_y = y + 75
+            weapon_font = self.font_small
+            
+            # Primary Weapon Box
+            primary_box_x = text_x
+            primary_box_y = weapons_y
+            primary_box_width = 165
+            primary_box_height = 58
+            
+            # Background with darker interior
+            pygame.draw.rect(self.screen, (25, 30, 38), (primary_box_x, primary_box_y, primary_box_width, primary_box_height), border_radius=6)
+            pygame.draw.rect(self.screen, (120, 200, 255), (primary_box_x, primary_box_y, primary_box_width, primary_box_height), 2, border_radius=6)
+            
+            # Label
+            primary_label = weapon_font.render("PRIMARY", True, (120, 200, 255))
+            self.screen.blit(primary_label, (primary_box_x + 5, primary_box_y + 2))
+            
+            # Draw weapon image (centered better)
+            weapon_icon_y = primary_box_y + 16
+            self._draw_weapon_icon(self.screen, loadout['primary'], primary_box_x + 8, weapon_icon_y, 1.1)
+            
+            # Weapon name at bottom
+            weapon_name_surf = weapon_font.render(loadout['primary'].upper().replace('_', ' '), True, (200, 220, 240))
+            self.screen.blit(weapon_name_surf, (primary_box_x + 5, primary_box_y + primary_box_height - 16))
+            
+            # Secondary Weapon Box
+            secondary_box_x = text_x + primary_box_width + 10
+            secondary_box_y = weapons_y
+            secondary_box_width = 165
+            secondary_box_height = 58
+            
+            # Background with darker interior
+            pygame.draw.rect(self.screen, (25, 35, 30), (secondary_box_x, secondary_box_y, secondary_box_width, secondary_box_height), border_radius=6)
+            pygame.draw.rect(self.screen, (120, 255, 150), (secondary_box_x, secondary_box_y, secondary_box_width, secondary_box_height), 2, border_radius=6)
+            
+            # Label
+            secondary_label = weapon_font.render("SECONDARY", True, (120, 255, 150))
+            self.screen.blit(secondary_label, (secondary_box_x + 5, secondary_box_y + 2))
+            
+            # Draw weapon image (centered better)
+            weapon_icon_y = secondary_box_y + 16
+            self._draw_weapon_icon(self.screen, loadout['secondary'], secondary_box_x + 8, weapon_icon_y, 1.1)
+            
+            # Weapon name at bottom
+            weapon_name_surf = weapon_font.render(loadout['secondary'].upper().replace('_', ' '), True, (200, 220, 240))
+            self.screen.blit(weapon_name_surf, (secondary_box_x + 5, secondary_box_y + secondary_box_height - 16))
+            
+            # Perk display
+            perk_y = weapons_y + secondary_box_height + 8
+            perk_text = f"⚡ PERK: {loadout['perk']}"
+            perk_color = (255, 200, 80) if is_current else (180, 150, 255)
+            perk_surf = weapon_font.render(perk_text, True, perk_color)
+            self.screen.blit(perk_surf, (text_x, perk_y))
+            
+            # === STATS - SIMPLE BARS ===
+            stats_x = card_x + card_width - 200
+            stats_y = y + 22
+            stats = loadout['stats']
+            stat_info = [
+                ('DMG', 'damage', (255, 100, 100)),
+                ('RNG', 'range', (100, 180, 255)),
+                ('MOB', 'mobility', (120, 255, 150)),
+                ('ACC', 'accuracy', (255, 200, 100))
+            ]
+            
+            for j, (stat_name, stat_key, stat_color) in enumerate(stat_info):
+                stat_y_pos = stats_y + j * 30
+                
+                # Stat name (compact)
+                stat_label = self.font_small.render(stat_name, True, (140, 150, 160))
+                self.screen.blit(stat_label, (stats_x, stat_y_pos))
+                
+                # Stat bar
+                bar_width = 110
+                bar_height = 12
+                bar_x = stats_x + 35
+                bar_y = stat_y_pos + 2
+                
+                # Background
+                pygame.draw.rect(self.screen, (20, 25, 32), (bar_x, bar_y, bar_width, bar_height), border_radius=6)
+                
+                # Value bar with glow
+                value_width = int((stats[stat_key] / 10) * bar_width)
+                if value_width > 0:
+                    pygame.draw.rect(self.screen, stat_color, (bar_x, bar_y, value_width, bar_height), border_radius=6)
+                
+                # Border
+                pygame.draw.rect(self.screen, (60, 70, 85), (bar_x, bar_y, bar_width, bar_height), 1, border_radius=6)
+                
+                # Value text
+                value_text = f"{stats[stat_key]}"
+                value_surf = self.font_small.render(value_text, True, (200, 210, 220))
+                self.screen.blit(value_surf, (bar_x + bar_width + 6, stat_y_pos))
+            
+            # === EQUIPPED BADGE ===
+            if is_current:
+                badge_x = card_x + card_width - 120
+                badge_y = y + card_height - 28
+                
+                # Badge background with glow
+                pygame.draw.rect(self.screen, (60, 120, 60), (badge_x-2, badge_y-2, 104, 24), border_radius=8)
+                pygame.draw.rect(self.screen, (80, 160, 80), (badge_x, badge_y, 100, 20), border_radius=6)
+                
+                # Badge text
+                badge_font = pygame.font.Font(None, 24)
+                badge_text = badge_font.render("✓ EQUIPPED", True, (255, 255, 255))
+                self.screen.blit(badge_text, (badge_x + 50 - badge_text.get_width()//2, badge_y + 10 - badge_text.get_height()//2))
+        
+        # === INSTRUCTIONS ===
+        inst_y = self.screen_height - 100
+        
+        instructions = [
+            "↑↓ ARROWS - Select   |   ENTER - Equip   |   ESC - Back"
+        ]
+        
+        for i, inst in enumerate(instructions):
+            inst_surf = self.font_medium.render(inst, True, (140, 150, 160))
+            self.screen.blit(inst_surf, (self.screen_width//2 - inst_surf.get_width()//2, inst_y + i * 30))
+        
+        # === BACK BUTTON ===
+        back_button_rect = pygame.Rect(50, self.screen_height - 80, 150, 50)
+        mouse_pos = pygame.mouse.get_pos()
+        back_hover = back_button_rect.collidepoint(mouse_pos)
+        
+        # Button background
+        if back_hover:
+            pygame.draw.rect(self.screen, (50, 60, 75), back_button_rect, border_radius=8)
+            pygame.draw.rect(self.screen, (100, 180, 255), back_button_rect, 2, border_radius=8)
+        else:
+            pygame.draw.rect(self.screen, (35, 45, 60), back_button_rect, border_radius=8)
+            pygame.draw.rect(self.screen, (70, 80, 100), back_button_rect, 2, border_radius=8)
+        
+        # Button text
+        back_text = self.font_large.render("← BACK", True, (200, 210, 220) if back_hover else (150, 160, 170))
+        self.screen.blit(back_text, (50 + 75 - back_text.get_width()//2, self.screen_height - 80 + 25 - back_text.get_height()//2))
+    
+    def _render_settings(self):
+        """⚙️ SETTINGS SCREEN - Professional & Comprehensive"""
+        current_time = pygame.time.get_ticks()
+        
+        # === BACKGROUND: Dark tactical gradient ===
+        for y in range(self.screen_height):
+            ratio = y / self.screen_height
+            r = int(15 + (25 - 15) * ratio)
+            g = int(18 + (28 - 18) * ratio)
+            b = int(22 + (35 - 22) * ratio)
+            pygame.draw.line(self.screen, (r, g, b), (0, y), (self.screen_width, y))
+        for i in range(particle_count):
+            seed = i * 1000
+            x = ((current_time + seed) % (self.screen_width * 3)) / 3
+            y = ((current_time * 0.3 + seed * 0.7) % (self.screen_height * 2)) / 2
+            size = 1 + (i % 3)
+            alpha = int(50 + 50 * math.sin(current_time / 500 + i))
+            particle_surf = pygame.Surface((size, size), pygame.SRCALPHA)
+            particle_surf.fill((200, 220, 255, alpha))
+            self.screen.blit(particle_surf, (int(x), int(y)))
+        
+        # === HEXAGON GRID PATTERN (Advanced Military Tech) ===
+        hex_alpha = 20
+        hex_spacing = 60
+        for x in range(-hex_spacing, self.screen_width + hex_spacing, hex_spacing):
+            for y_pos in range(-hex_spacing, self.screen_height + hex_spacing, int(hex_spacing * 0.866)):
+                offset = hex_spacing // 2 if (y_pos // int(hex_spacing * 0.866)) % 2 == 0 else 0
+                hex_x = x + offset
+                # Animated hexagons
+                pulse = abs(math.sin(current_time / 2000 + hex_x / 100 + y_pos / 100)) * hex_alpha
+                for angle in range(0, 360, 60):
+                    angle_rad = math.radians(angle)
+                    x1 = hex_x + math.cos(angle_rad) * 15
+                    y1 = y_pos + math.sin(angle_rad) * 15
+                    angle_rad2 = math.radians(angle + 60)
+                    x2 = hex_x + math.cos(angle_rad2) * 15
+                    y2 = y_pos + math.sin(angle_rad2) * 15
+                    if 0 <= x1 < self.screen_width and 0 <= y1 < self.screen_height:
+                        color_intensity = int(40 + pulse)
+                        pygame.draw.line(self.screen, (color_intensity, color_intensity + 10, color_intensity + 20, hex_alpha), 
+                                       (x1, y1), (x2, y2), 1)
+        
+        # === CINEMATIC LIGHT RAYS ===
+        ray_count = 5
+        for i in range(ray_count):
+            ray_x = self.screen_width * (0.2 + i * 0.15)
+            ray_angle = -60 + math.sin(current_time / 1000 + i) * 10
+            ray_length = self.screen_height * 1.5
+            ray_width = 150
+            
+            ray_surf = pygame.Surface((ray_width, ray_length), pygame.SRCALPHA)
+            for w in range(ray_width):
+                alpha = int(8 * (1 - abs(w - ray_width/2) / (ray_width/2)))
+                pygame.draw.line(ray_surf, (100, 150, 255, alpha), (w, 0), (w, ray_length))
+            
+            rotated_ray = pygame.transform.rotate(ray_surf, ray_angle)
+            self.screen.blit(rotated_ray, (ray_x - rotated_ray.get_width()//2, -ray_length//2))
+        
+        # === ANIMATED SCAN LINES (Multiple layers) ===
+        scan_line_1 = (current_time // 3) % self.screen_height
+        scan_line_2 = (current_time // 5) % self.screen_height
+        
+        for scan_line, speed in [(scan_line_1, 3), (scan_line_2, 5)]:
+            for i in range(-30, 31, 2):
+                if 0 <= scan_line + i < self.screen_height:
+                    alpha = int(30 * (1 - abs(i) / 30))
+                    scan_surf = pygame.Surface((self.screen_width, 1), pygame.SRCALPHA)
+                    scan_surf.fill((120, 180, 255, alpha))
+                    self.screen.blit(scan_surf, (0, scan_line + i))
+        
+        # === GLOWING CORNER BRACKETS (Animated) ===
+        bracket_size = 50
+        bracket_thickness = 4
+        pulse_brightness = abs(math.sin(current_time / 400))
+        bracket_r = int(80 + 175 * pulse_brightness)
+        bracket_g = int(180 + 75 * pulse_brightness)
+        bracket_b = 255
+        bracket_color = (bracket_r, bracket_g, bracket_b)
+        
+        # Add glow to brackets
+        for glow_offset in range(8, 0, -2):
+            glow_alpha = int(40 * pulse_brightness * (9 - glow_offset) / 8)
+            glow_color = (*bracket_color, glow_alpha)
+            
+            # Top-left
+            glow_surf = pygame.Surface((bracket_size + glow_offset * 2, bracket_size + glow_offset * 2), pygame.SRCALPHA)
+            pygame.draw.line(glow_surf, glow_color, (glow_offset, glow_offset), (bracket_size + glow_offset, glow_offset), bracket_thickness)
+            pygame.draw.line(glow_surf, glow_color, (glow_offset, glow_offset), (glow_offset, bracket_size + glow_offset), bracket_thickness)
+            self.screen.blit(glow_surf, (20 - glow_offset, 20 - glow_offset))
+        
+        # Main brackets
+        pygame.draw.line(self.screen, bracket_color, (20, 20), (20 + bracket_size, 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (20, 20), (20, 20 + bracket_size), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, 20), (self.screen_width - 20 - bracket_size, 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, 20), (self.screen_width - 20, 20 + bracket_size), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (20, self.screen_height - 20), (20 + bracket_size, self.screen_height - 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (20, self.screen_height - 20), (20, self.screen_height - 20 - bracket_size), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, self.screen_height - 20), (self.screen_width - 20 - bracket_size, self.screen_height - 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, self.screen_height - 20), (self.screen_width - 20, self.screen_height - 20 - bracket_size), bracket_thickness)
+        
+        # === EPIC TITLE WITH GLOW EFFECTS ===
+        title_font = pygame.font.Font(None, 88)
+        title = "⚔️ TACTICAL LOADOUT ARMORY ⚔️"
+        
+        # Outer glow (multiple layers for blur effect)
+        for glow_size in range(12, 0, -2):
+            glow_alpha = int(20 * (13 - glow_size) / 12)
+            glow_surf = title_font.render(title, True, (100, 200, 255))
+            glow_surf.set_alpha(glow_alpha)
+            for angle in range(0, 360, 45):
+                offset_x = math.cos(math.radians(angle)) * glow_size
+                offset_y = math.sin(math.radians(angle)) * glow_size
+                self.screen.blit(glow_surf, (self.screen_width//2 - glow_surf.get_width()//2 + offset_x, 
+                                             28 + offset_y))
+        
+        # Multi-layer shadow for 3D depth
+        for offset in range(6, 0, -1):
+            shadow_alpha = 50 * (7 - offset)
+            shadow = title_font.render(title, True, (0, 0, 0))
+            shadow.set_alpha(shadow_alpha)
+            self.screen.blit(shadow, (self.screen_width//2 - shadow.get_width()//2 + offset, 28 + offset))
+        
+        # Main title with gradient effect
+        title_surf = title_font.render(title, True, (255, 220, 100))
+        self.screen.blit(title_surf, (self.screen_width//2 - title_surf.get_width()//2, 28))
+        
+        # Title shine effect (animated)
+        shine_pos = ((current_time // 10) % (title_surf.get_width() + 200)) - 100
+        shine_surf = pygame.Surface((50, title_surf.get_height()), pygame.SRCALPHA)
+        for x in range(50):
+            alpha = int(100 * (1 - abs(x - 25) / 25))
+            pygame.draw.line(shine_surf, (255, 255, 255, alpha), (x, 0), (x, title_surf.get_height()))
+        self.screen.blit(shine_surf, (self.screen_width//2 - title_surf.get_width()//2 + shine_pos, 28))
+        
+        # Epic subtitle with typing effect
+        subtitle_font = pygame.font.Font(None, 32)
+        subtitle_full = "⚡ SELECT YOUR COMBAT CLASS • DOMINATE THE BATTLEFIELD ⚡"
+        char_count = int((current_time / 50) % (len(subtitle_full) + 20))
+        subtitle = subtitle_full[:min(char_count, len(subtitle_full))]
+        
+        # Subtitle glow
+        sub_glow = subtitle_font.render(subtitle, True, (100, 200, 255))
+        sub_glow.set_alpha(150)
+        self.screen.blit(sub_glow, (self.screen_width//2 - sub_glow.get_width()//2 + 2, 107))
+        
+        subtitle_surf = subtitle_font.render(subtitle, True, (180, 220, 255))
+        self.screen.blit(subtitle_surf, (self.screen_width//2 - subtitle_surf.get_width()//2, 105))
+        
+        # === ULTRA-BEAUTIFUL LOADOUT CARDS ===
+        card_width = 780
+        card_height = 175
+        card_spacing = 12
+        start_y = 155
+        card_x = self.screen_width//2 - card_width//2
+        
+        for i, loadout in enumerate(self.loadouts):
+            y = start_y + i * (card_height + card_spacing)
+            is_selected = (i == self.loadout_selection)
+            is_current = (i == self.current_loadout)
+            
+            # === CARD WITH CINEMATIC EFFECTS ===
+            card_surf = pygame.Surface((card_width, card_height), pygame.SRCALPHA)
+            
+            if is_selected:
+                # MEGA OUTER GLOW (Pulsing)
+                pulse = abs(math.sin(current_time / 200))
+                for glow_offset in range(20, 0, -3):
+                    glow_alpha = int(25 * pulse * (21 - glow_offset) / 20)
+                    glow_surf = pygame.Surface((card_width + glow_offset * 2, card_height + glow_offset * 2), pygame.SRCALPHA)
+                    pygame.draw.rect(glow_surf, (100, 200, 255, glow_alpha), 
+                                   (0, 0, card_width + glow_offset * 2, card_height + glow_offset * 2), 
+                                   border_radius=20)
+                    self.screen.blit(glow_surf, (card_x - glow_offset, y - glow_offset))
+                
+                # Card gradient background
+                for gradient_y in range(card_height):
+                    ratio = gradient_y / card_height
+                    r = int(40 + (60 - 40) * ratio + pulse * 10)
+                    g = int(50 + (80 - 50) * ratio + pulse * 15)
+                    b = int(80 + (120 - 80) * ratio + pulse * 20)
+                    pygame.draw.line(card_surf, (r, g, b), (0, gradient_y), (card_width, gradient_y))
+                
+                # Animated border (multiple layers)
+                pygame.draw.rect(card_surf, (150 + int(105 * pulse), 220, 255), (0, 0, card_width, card_height), 5, border_radius=18)
+                pygame.draw.rect(card_surf, (100, 180, 255), (2, 2, card_width - 4, card_height - 4), 2, border_radius=16)
+                
+            elif is_current:
+                # GOLD LEGENDARY EFFECT
+                for glow_offset in range(15, 0, -2):
+                    glow_alpha = int(30 * (16 - glow_offset) / 15)
+                    glow_surf = pygame.Surface((card_width + glow_offset * 2, card_height + glow_offset * 2), pygame.SRCALPHA)
+                    pygame.draw.rect(glow_surf, (255, 200, 50, glow_alpha), 
+                                   (0, 0, card_width + glow_offset * 2, card_height + glow_offset * 2), 
+                                   border_radius=20)
+                    self.screen.blit(glow_surf, (card_x - glow_offset, y - glow_offset))
+                
+                # Gold gradient
+                for gradient_y in range(card_height):
+                    ratio = gradient_y / card_height
+                    r = int(35 + (50 - 35) * ratio)
+                    g = int(40 + (55 - 40) * ratio)
+                    b = int(60 + (80 - 60) * ratio)
+                    pygame.draw.line(card_surf, (r, g, b), (0, gradient_y), (card_width, gradient_y))
+                
+                pygame.draw.rect(card_surf, (255, 215, 0), (0, 0, card_width, card_height), 5, border_radius=18)
+                pygame.draw.rect(card_surf, (200, 170, 50), (2, 2, card_width - 4, card_height - 4), 2, border_radius=16)
+                
+                # Sparkle effects on equipped card
+                for sparkle_i in range(8):
+                    sparkle_time = (current_time + sparkle_i * 500) / 1000
+                    sparkle_x = int((math.sin(sparkle_time + sparkle_i) * 0.4 + 0.5) * card_width)
+                    sparkle_y = int((math.cos(sparkle_time * 1.3 + sparkle_i) * 0.4 + 0.5) * card_height)
+                    sparkle_alpha = int(abs(math.sin(sparkle_time * 3)) * 200)
+                    sparkle_size = 3 + int(abs(math.sin(sparkle_time * 2)) * 3)
+                    pygame.draw.circle(card_surf, (255, 255, 200, sparkle_alpha), (sparkle_x, sparkle_y), sparkle_size)
+                
+            else:
+                # Normal card with subtle gradient
+                for gradient_y in range(card_height):
+                    ratio = gradient_y / card_height
+                    r = int(20 + (35 - 20) * ratio)
+                    g = int(25 + (40 - 25) * ratio)
+                    b = int(35 + (55 - 35) * ratio)
+                    pygame.draw.line(card_surf, (r, g, b), (0, gradient_y), (card_width, gradient_y))
+                
+                pygame.draw.rect(card_surf, (70, 85, 110), (0, 0, card_width, card_height), 3, border_radius=18)
+            
+            # Inner shadow for depth
+            shadow_surf = pygame.Surface((card_width - 10, 8), pygame.SRCALPHA)
+            for shadow_y in range(8):
+                alpha = int(40 * (8 - shadow_y) / 8)
+                pygame.draw.line(shadow_surf, (0, 0, 0, alpha), (0, shadow_y), (card_width - 10, shadow_y))
+            card_surf.blit(shadow_surf, (5, 5))
+            
+            self.screen.blit(card_surf, (card_x, y))
+            
+            # === ICON WITH MEGA GLOW ===
+            icon_bg_x = card_x + 90
+            icon_bg_y = y + card_height//2
+            icon_radius = 62
+            
+            # Icon outer glow (pulsing)
+            icon_pulse = abs(math.sin(current_time / 300 + i * 0.5))
+            for glow_r in range(icon_radius + 25, icon_radius, -3):
+                glow_alpha = int(30 * icon_pulse * (icon_radius + 26 - glow_r) / 25)
+                glow_color = Colors.GOLD if is_current else ((120, 200, 255) if is_selected else (80, 100, 140))
+                pygame.draw.circle(self.screen, (*glow_color, glow_alpha), (icon_bg_x, icon_bg_y), glow_r)
+            
+            # Icon background (gradient circle)
+            for r in range(icon_radius, 0, -1):
+                ratio = r / icon_radius
+                if is_current:
+                    color = (int(100 * ratio), int(80 * ratio), int(20 * ratio))
+                elif is_selected:
+                    color = (int(50 * ratio), int(90 * ratio), int(140 * ratio))
+                else:
+                    color = (int(40 * ratio), int(50 * ratio), int(70 * ratio))
+                pygame.draw.circle(self.screen, color, (icon_bg_x, icon_bg_y), r)
+            
+            # Icon border (triple layer)
+            icon_border_color = Colors.GOLD if is_current else (Colors.NEON_CYAN if is_selected else (100, 110, 130))
+            pygame.draw.circle(self.screen, icon_border_color, (icon_bg_x, icon_bg_y), icon_radius, 4)
+            pygame.draw.circle(self.screen, (*icon_border_color, 100), (icon_bg_x, icon_bg_y), icon_radius + 3, 2)
+            
+            # Icon with glow
+            icon_font = pygame.font.Font(None, 80)
+            icon_color = Colors.WHITE
+            
+            # Icon shadow
+            icon_shadow = icon_font.render(loadout['icon'], True, (0, 0, 0))
+            icon_shadow.set_alpha(100)
+            self.screen.blit(icon_shadow, (icon_bg_x - icon_shadow.get_width()//2 + 3, icon_bg_y - icon_shadow.get_height()//2 + 3))
+            
+            # Icon main
+            icon_surf = icon_font.render(loadout['icon'], True, icon_color)
+            self.screen.blit(icon_surf, (icon_bg_x - icon_surf.get_width()//2, icon_bg_y - icon_surf.get_height()//2))
+            
+            # === TEXT CONTENT WITH SHADOWS ===
+            text_start_x = card_x + 180
+            
+            # Loadout name (large with glow)
+            name_font = pygame.font.Font(None, 58)
+            name_color = (255, 215, 0) if is_current else ((100, 220, 255) if is_selected else (220, 230, 240))
+            
+            # Name glow
+            name_glow = name_font.render(loadout['name'], True, name_color)
+            name_glow.set_alpha(80)
+            self.screen.blit(name_glow, (text_start_x + 2, y + 13))
+            
+            # Name shadow
+            name_shadow = name_font.render(loadout['name'], True, (0, 0, 0))
+            name_shadow.set_alpha(150)
+            self.screen.blit(name_shadow, (text_start_x + 2, y + 12))
+            
+            # Name main
+            name_surf = name_font.render(loadout['name'], True, name_color)
+            self.screen.blit(name_surf, (text_start_x, y + 10))
+            
+            # Description
+            desc_surf = self.font_medium.render(loadout['description'], True, (190, 200, 220))
+            self.screen.blit(desc_surf, (text_start_x, y + 65))
+            
+            # Weapons with fancy icons and boxes
+            weapons_y = y + 95
+            
+            # PRIMARY weapon box
+            prim_box_width = 220
+            prim_box_height = 28
+            prim_box_surf = pygame.Surface((prim_box_width, prim_box_height), pygame.SRCALPHA)
+            prim_box_surf.fill((40, 60, 90, 180))
+            pygame.draw.rect(prim_box_surf, (100, 180, 255), (0, 0, prim_box_width, prim_box_height), 2, border_radius=6)
+            self.screen.blit(prim_box_surf, (text_start_x, weapons_y))
+            
+            primary_icon = "🔫"
+            primary_label = self.font_small.render(f"{primary_icon} PRIMARY:", True, (120, 160, 200))
+            self.screen.blit(primary_label, (text_start_x + 5, weapons_y + 6))
+            
+            primary_name = self.font_small.render(loadout['primary'].upper().replace('_', ' '), True, Colors.NEON_CYAN)
+            self.screen.blit(primary_name, (text_start_x + 105, weapons_y + 6))
+            
+            # SECONDARY weapon box
+            sec_box_surf = pygame.Surface((prim_box_width, prim_box_height), pygame.SRCALPHA)
+            sec_box_surf.fill((40, 70, 50, 180))
+            pygame.draw.rect(sec_box_surf, (100, 255, 150), (0, 0, prim_box_width, prim_box_height), 2, border_radius=6)
+            self.screen.blit(sec_box_surf, (text_start_x, weapons_y + 33))
+            
+            secondary_icon = "🔪"
+            secondary_label = self.font_small.render(f"{secondary_icon} SECONDARY:", True, (120, 200, 150))
+            self.screen.blit(secondary_label, (text_start_x + 5, weapons_y + 39))
+            
+            secondary_name = self.font_small.render(loadout['secondary'].upper().replace('_', ' '), True, Colors.NEON_GREEN)
+            self.screen.blit(secondary_name, (text_start_x + 130, weapons_y + 39))
+            
+            # Perk badge with glow
+            perk_x = text_start_x
+            perk_y = y + 143
+            perk_bg_width = 200
+            perk_bg_height = 26
+            
+            perk_surf = pygame.Surface((perk_bg_width, perk_bg_height), pygame.SRCALPHA)
+            perk_color = (100, 70, 20, 220) if is_current else ((30, 50, 80, 220) if is_selected else (50, 60, 80, 200))
+            perk_surf.fill(perk_color)
+            
+            perk_border_color = Colors.GOLD if is_current else (Colors.NEON_CYAN if is_selected else (100, 120, 150))
+            pygame.draw.rect(perk_surf, perk_border_color, (0, 0, perk_bg_width, perk_bg_height), 2, border_radius=8)
+            self.screen.blit(perk_surf, (perk_x, perk_y))
+            
+            perk_text = f"🎖️ {loadout['perk']}"
+            perk_text_color = (255, 220, 100) if is_current else (Colors.NEON_CYAN if is_selected else (200, 210, 230))
+            perk_text_surf = self.font_small.render(perk_text, True, perk_text_color)
+            self.screen.blit(perk_text_surf, (perk_x + 8, perk_y + 5))
+            
+            # === CINEMATIC STATS DISPLAY ===
+            stats_x = card_x + card_width - 215
+            stats_y = y + 22
+            stats = loadout['stats']
+            stat_info = [
+                ('💥 DAMAGE', 'damage', (255, 80, 80)),
+                ('🎯 RANGE', 'range', (100, 200, 255)),
+                ('⚡ MOBILITY', 'mobility', (100, 255, 150)),
+                ('📊 ACCURACY', 'accuracy', (255, 220, 100))
+            ]
+            
+            for j, (stat_name, stat_key, stat_color) in enumerate(stat_info):
+                stat_y_pos = stats_y + j * 35
+                
+                # Stat label with glow
+                stat_label = self.font_small.render(stat_name, True, (200, 210, 230))
+                self.screen.blit(stat_label, (stats_x, stat_y_pos))
+                
+                # Epic 3D stat bar
+                bar_width = 130
+                bar_height = 14
+                bar_x = stats_x + 10
+                bar_y = stat_y_pos + 16
+                
+                # Bar shadow
+                shadow_surf = pygame.Surface((bar_width, bar_height), pygame.SRCALPHA)
+                shadow_surf.fill((0, 0, 0, 60))
+                self.screen.blit(shadow_surf, (bar_x + 2, bar_y + 2))
+                
+                # Bar background (dark with border)
+                pygame.draw.rect(self.screen, (15, 20, 30), (bar_x, bar_y, bar_width, bar_height), border_radius=7)
+                pygame.draw.rect(self.screen, (50, 60, 80), (bar_x, bar_y, bar_width, bar_height), 2, border_radius=7)
+                
+                # Value bar with gradient and glow
+                value_width = int((stats[stat_key] / 10) * (bar_width - 4))
+                if value_width > 0:
+                    # Outer glow
+                    glow_surf = pygame.Surface((value_width + 10, bar_height + 10), pygame.SRCALPHA)
+                    for glow_i in range(5, 0, -1):
+                        glow_alpha = int(40 * (6 - glow_i) / 5)
+                        pygame.draw.rect(glow_surf, (*stat_color, glow_alpha), 
+                                       (5 - glow_i, 5 - glow_i, value_width + glow_i * 2, bar_height + glow_i * 2), 
+                                       border_radius=7)
+                    self.screen.blit(glow_surf, (bar_x - 5, bar_y - 5))
+                    
+                    # Gradient fill
+                    for k in range(value_width):
+                        ratio = k / bar_width
+                        color_intensity = 0.5 + 0.5 * ratio
+                        bar_r = int(stat_color[0] * color_intensity)
+                        bar_g = int(stat_color[1] * color_intensity)
+                        bar_b = int(stat_color[2] * color_intensity)
+                        pygame.draw.rect(self.screen, (bar_r, bar_g, bar_b), 
+                                       (bar_x + 2 + k, bar_y + 2, 1, bar_height - 4))
+                    
+                    # Shine effect on bar
+                    shine_surf = pygame.Surface((value_width - 4, (bar_height - 4) // 2), pygame.SRCALPHA)
+                    shine_surf.fill((*stat_color, 80))
+                    self.screen.blit(shine_surf, (bar_x + 2, bar_y + 2))
+                    
+                    # Bar border
+                    pygame.draw.rect(self.screen, stat_color, (bar_x + 2, bar_y + 2, value_width - 4, bar_height - 4), 1, border_radius=6)
+                
+                # Value text with shadow
+                value_text = f"{stats[stat_key]}/10"
+                value_shadow = self.font_small.render(value_text, True, (0, 0, 0))
+                value_shadow.set_alpha(120)
+                self.screen.blit(value_shadow, (bar_x + bar_width + 9, stat_y_pos + 11))
+                
+                value_surf = self.font_small.render(value_text, True, (240, 245, 255))
+                self.screen.blit(value_surf, (bar_x + bar_width + 8, stat_y_pos + 10))
+            
+            # === LEGENDARY "EQUIPPED" BADGE ===
+            if is_current:
+                equipped_bg_width = 155
+                equipped_bg_height = 38
+                equipped_x = card_x + card_width - equipped_bg_width - 18
+                equipped_y = y + card_height - equipped_bg_height - 12
+                
+                # Badge glow
+                for glow_size in range(6, 0, -1):
+                    glow_alpha = int(60 * (7 - glow_size) / 6)
+                    glow_surf = pygame.Surface((equipped_bg_width + glow_size * 2, equipped_bg_height + glow_size * 2), pygame.SRCALPHA)
+                    pygame.draw.rect(glow_surf, (100, 255, 100, glow_alpha), 
+                                   (0, 0, equipped_bg_width + glow_size * 2, equipped_bg_height + glow_size * 2), 
+                                   border_radius=10)
+                    self.screen.blit(glow_surf, (equipped_x - glow_size, equipped_y - glow_size))
+                
+                # Badge background
+                badge_surf = pygame.Surface((equipped_bg_width, equipped_bg_height), pygame.SRCALPHA)
+                badge_surf.fill((40, 150, 40, 240))
+                pygame.draw.rect(badge_surf, (100, 255, 100), (0, 0, equipped_bg_width, equipped_bg_height), 3, border_radius=10)
+                self.screen.blit(badge_surf, (equipped_x, equipped_y))
+                
+                # Badge text with shadow
+                equipped_font = pygame.font.Font(None, 36)
+                equipped_shadow = equipped_font.render("✓ EQUIPPED", True, (0, 0, 0))
+                equipped_shadow.set_alpha(120)
+                self.screen.blit(equipped_shadow, (equipped_x + equipped_bg_width//2 - equipped_shadow.get_width()//2 + 2,
+                                                   equipped_y + equipped_bg_height//2 - equipped_shadow.get_height()//2 + 2))
+                
+                equipped_text = equipped_font.render("✓ EQUIPPED", True, (255, 255, 255))
+                self.screen.blit(equipped_text, (equipped_x + equipped_bg_width//2 - equipped_text.get_width()//2, 
+                                                 equipped_y + equipped_bg_height//2 - equipped_text.get_height()//2))
+        
+        # === CINEMATIC INSTRUCTIONS PANEL ===
+        inst_y = self.screen_height - 115
+        inst_panel_width = 750
+        inst_panel_height = 90
+        inst_panel_x = self.screen_width//2 - inst_panel_width//2
+        
+        # Panel glow
+        for glow_offset in range(8, 0, -2):
+            glow_alpha = int(20 * (9 - glow_offset) / 8)
+            glow_surf = pygame.Surface((inst_panel_width + glow_offset * 2, inst_panel_height + glow_offset * 2), pygame.SRCALPHA)
+            pygame.draw.rect(glow_surf, (100, 180, 255, glow_alpha), 
+                           (0, 0, inst_panel_width + glow_offset * 2, inst_panel_height + glow_offset * 2), 
+                           border_radius=15)
+            self.screen.blit(glow_surf, (inst_panel_x - glow_offset, inst_y - glow_offset))
+        
+        # Panel background
+        inst_panel_surf = pygame.Surface((inst_panel_width, inst_panel_height), pygame.SRCALPHA)
+        inst_panel_surf.fill((15, 25, 40, 230))
+        pygame.draw.rect(inst_panel_surf, (100, 150, 220), (0, 0, inst_panel_width, inst_panel_height), 3, border_radius=12)
+        self.screen.blit(inst_panel_surf, (inst_panel_x, inst_y))
+        
+        instructions = [
+            "↑↓ ARROWS - Select Loadout",
+            "ENTER / CLICK - Confirm & Equip",
+            "ESC - Back to Menu"
+        ]
+        
+        for i, inst in enumerate(instructions):
+            # Instruction shadow
+            inst_shadow = self.font_medium.render(inst, True, (0, 0, 0))
+            inst_shadow.set_alpha(100)
+            self.screen.blit(inst_shadow, (self.screen_width//2 - inst_shadow.get_width()//2 + 2, inst_y + 12 + i * 27))
+            
+            # Instruction main
+            inst_surf = self.font_medium.render(inst, True, (220, 235, 255))
+            self.screen.blit(inst_surf, (self.screen_width//2 - inst_surf.get_width()//2, inst_y + 10 + i * 27))
+        
+        # === HEXAGON GRID PATTERN (Military Tech Style) ===
+        hex_alpha = 15
+        hex_spacing = 60
+        for x in range(-hex_spacing, self.screen_width + hex_spacing, hex_spacing):
+            for y_pos in range(-hex_spacing, self.screen_height + hex_spacing, int(hex_spacing * 0.866)):
+                offset = hex_spacing // 2 if (y_pos // int(hex_spacing * 0.866)) % 2 == 0 else 0
+                hex_x = x + offset
+                # Draw small hexagon corners
+                for angle in range(0, 360, 60):
+                    angle_rad = math.radians(angle)
+                    x1 = hex_x + math.cos(angle_rad) * 15
+                    y1 = y_pos + math.sin(angle_rad) * 15
+                    angle_rad2 = math.radians(angle + 60)
+                    x2 = hex_x + math.cos(angle_rad2) * 15
+                    y2 = y_pos + math.sin(angle_rad2) * 15
+                    if 0 <= x1 < self.screen_width and 0 <= y1 < self.screen_height:
+                        pygame.draw.line(self.screen, (40, 50, 60, hex_alpha), (x1, y1), (x2, y2), 1)
+        
+        # === ANIMATED SCAN LINES ===
+        scan_line = (current_time // 5) % self.screen_height
+        for i in range(-20, 21, 2):
+            if 0 <= scan_line + i < self.screen_height:
+                alpha = int(20 * (1 - abs(i) / 20))
+                scan_surf = pygame.Surface((self.screen_width, 1), pygame.SRCALPHA)
+                scan_surf.fill((100, 150, 200, alpha))
+                self.screen.blit(scan_surf, (0, scan_line + i))
+        
+        # === CORNER BRACKETS (HUD Style) ===
+        bracket_size = 40
+        bracket_thickness = 3
+        bracket_color = (80, 180, 255)
+        # Top-left
+        pygame.draw.line(self.screen, bracket_color, (20, 20), (20 + bracket_size, 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (20, 20), (20, 20 + bracket_size), bracket_thickness)
+        # Top-right
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, 20), (self.screen_width - 20 - bracket_size, 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, 20), (self.screen_width - 20, 20 + bracket_size), bracket_thickness)
+        # Bottom-left
+        pygame.draw.line(self.screen, bracket_color, (20, self.screen_height - 20), (20 + bracket_size, self.screen_height - 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (20, self.screen_height - 20), (20, self.screen_height - 20 - bracket_size), bracket_thickness)
+        # Bottom-right
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, self.screen_height - 20), (self.screen_width - 20 - bracket_size, self.screen_height - 20), bracket_thickness)
+        pygame.draw.line(self.screen, bracket_color, (self.screen_width - 20, self.screen_height - 20), (self.screen_width - 20, self.screen_height - 20 - bracket_size), bracket_thickness)
+        
+        # === TITLE WITH MILITARY STYLING ===
+        title_font = pygame.font.Font(None, 80)
+        title = "⚔️ TACTICAL LOADOUT SELECTION ⚔️"
+        
+        # Multi-layer shadow for depth
+        for offset in range(5, 0, -1):
+            shadow_alpha = 40 * (6 - offset)
+            shadow = title_font.render(title, True, (0, 0, 0))
+            shadow.set_alpha(shadow_alpha)
+            self.screen.blit(shadow, (self.screen_width//2 - shadow.get_width()//2 + offset, 35 + offset))
+        
+        # Main title with glow
+        title_surf = title_font.render(title, True, Colors.GOLD)
+        self.screen.blit(title_surf, (self.screen_width//2 - title_surf.get_width()//2, 35))
+        
+        # Subtitle
+        subtitle_font = pygame.font.Font(None, 28)
+        subtitle = "SELECT YOUR COMBAT CLASS"
+        subtitle_surf = subtitle_font.render(subtitle, True, (150, 170, 200))
+        self.screen.blit(subtitle_surf, (self.screen_width//2 - subtitle_surf.get_width()//2, 100))
+        
+        # === LOADOUT CARDS - REDESIGNED ===
+        card_width = 750
+        card_height = 160
+        card_spacing = 15
+        start_y = 160
+        card_x = self.screen_width//2 - card_width//2
+        
+        for i, loadout in enumerate(self.loadouts):
+            y = start_y + i * (card_height + card_spacing)
+            is_selected = (i == self.loadout_selection)
+            is_current = (i == self.current_loadout)
+            
+            # === CARD BACKGROUND WITH DEPTH ===
+            card_surf = pygame.Surface((card_width, card_height), pygame.SRCALPHA)
+            
+            # Multiple layers for depth
+            if is_selected:
+                # Outer glow (pulsing)
+                pulse = abs(math.sin(current_time / 250))
+                for glow_offset in range(8, 0, -2):
+                    glow_alpha = int(15 * pulse * (9 - glow_offset) / 8)
+                    glow_rect = pygame.Rect(-glow_offset, -glow_offset, 
+                                           card_width + glow_offset * 2, 
+                                           card_height + glow_offset * 2)
+                    pygame.draw.rect(card_surf, (80, 180, 255, glow_alpha), glow_rect, border_radius=20)
+                
+                # Main card with gradient
+                pygame.draw.rect(card_surf, (35, 45, 70), (0, 0, card_width, card_height), border_radius=15)
+                # Highlight edge
+                pygame.draw.rect(card_surf, (100, 200, 255), (0, 0, card_width, card_height), 4, border_radius=15)
+                
+            elif is_current:
+                # Gold outline for equipped
+                pygame.draw.rect(card_surf, (30, 40, 60), (0, 0, card_width, card_height), border_radius=15)
+                pygame.draw.rect(card_surf, Colors.GOLD, (0, 0, card_width, card_height), 4, border_radius=15)
+                
+                # Gold corner accents
+                corner_size = 20
+                corners = [(5, 5), (card_width - 25, 5), (5, card_height - 25), (card_width - 25, card_height - 25)]
+                for cx, cy in corners:
+                    pygame.draw.line(card_surf, Colors.GOLD, (cx, cy), (cx + corner_size, cy), 3)
+                    pygame.draw.line(card_surf, Colors.GOLD, (cx, cy), (cx, cy + corner_size), 3)
+            else:
+                # Normal card
+                pygame.draw.rect(card_surf, (25, 30, 45), (0, 0, card_width, card_height), border_radius=15)
+                pygame.draw.rect(card_surf, (60, 70, 90), (0, 0, card_width, card_height), 2, border_radius=15)
+            
+            # Inner shadow for depth
+            shadow_surf = pygame.Surface((card_width - 6, 4), pygame.SRCALPHA)
+            shadow_surf.fill((0, 0, 0, 30))
+            card_surf.blit(shadow_surf, (3, 3))
+            
+            self.screen.blit(card_surf, (card_x, y))
+            
+            # === ICON WITH BACKGROUND CIRCLE ===
+            icon_bg_x = card_x + 80
+            icon_bg_y = y + card_height//2
+            icon_radius = 55
+            
+            # Icon background circle with gradient effect
+            for r in range(icon_radius, 0, -2):
+                alpha = int(80 * (icon_radius - r) / icon_radius)
+                color = Colors.GOLD if is_current else ((100, 180, 255) if is_selected else (60, 80, 120))
+                pygame.draw.circle(self.screen, (*color, alpha), (icon_bg_x, icon_bg_y), r)
+            
+            # Icon border
+            icon_border_color = Colors.GOLD if is_current else (Colors.NEON_CYAN if is_selected else (100, 110, 130))
+            pygame.draw.circle(self.screen, icon_border_color, (icon_bg_x, icon_bg_y), icon_radius, 3)
+            
+            # Icon
+            icon_font = pygame.font.Font(None, 70)
+            icon_color = Colors.WHITE if (is_selected or is_current) else Colors.LIGHT_GRAY
+            icon_surf = icon_font.render(loadout['icon'], True, icon_color)
+            self.screen.blit(icon_surf, (icon_bg_x - icon_surf.get_width()//2, icon_bg_y - icon_surf.get_height()//2))
+            
+            # === TEXT CONTENT ===
+            text_start_x = card_x + 160
+            
+            # Loadout name (large and bold)
+            name_font = pygame.font.Font(None, 52)
+            name_color = Colors.GOLD if is_current else (Colors.NEON_CYAN if is_selected else Colors.WHITE)
+            name_surf = name_font.render(loadout['name'], True, name_color)
+            self.screen.blit(name_surf, (text_start_x, y + 15))
+            
+            # Description (smaller, italicized look)
+            desc_surf = self.font_medium.render(loadout['description'], True, (170, 180, 200))
+            self.screen.blit(desc_surf, (text_start_x, y + 60))
+            
+            # Weapons with icons
+            weapons_y = y + 90
+            primary_icon = "🔫"
+            secondary_icon = "🔪"
+            
+            primary_label = self.font_small.render(f"{primary_icon} PRIMARY:", True, (120, 140, 160))
+            self.screen.blit(primary_label, (text_start_x, weapons_y))
+            
+            primary_name = self.font_small.render(loadout['primary'].upper().replace('_', ' '), True, Colors.NEON_CYAN)
+            self.screen.blit(primary_name, (text_start_x + 95, weapons_y))
+            
+            secondary_label = self.font_small.render(f"{secondary_icon} SECONDARY:", True, (120, 140, 160))
+            self.screen.blit(secondary_label, (text_start_x, weapons_y + 22))
+            
+            secondary_name = self.font_small.render(loadout['secondary'].upper().replace('_', ' '), True, Colors.NEON_GREEN)
+            self.screen.blit(secondary_name, (text_start_x + 120, weapons_y + 22))
+            
+            # Perk with badge background
+            perk_x = text_start_x
+            perk_y = y + 130
+            perk_bg_width = 180
+            perk_bg_height = 22
+            
+            # Perk badge background
+            perk_surf = pygame.Surface((perk_bg_width, perk_bg_height), pygame.SRCALPHA)
+            perk_surf.fill((80, 100, 140, 150))
+            self.screen.blit(perk_surf, (perk_x, perk_y))
+            
+            perk_text = f"🎖️ {loadout['perk']}"
+            perk_color = Colors.GOLD if is_current else Colors.NEON_CYAN
+            perk_text_surf = self.font_small.render(perk_text, True, perk_color)
+            self.screen.blit(perk_text_surf, (perk_x + 5, perk_y + 3))
+            
+            # === STATS - REDESIGNED WITH BETTER BARS ===
+            stats_x = card_x + card_width - 200
+            stats_y = y + 20
+            stats = loadout['stats']
+            stat_info = [
+                ('💥 DAMAGE', 'damage', Colors.NEON_RED),
+                ('🎯 RANGE', 'range', Colors.NEON_CYAN),
+                ('⚡ MOBILITY', 'mobility', Colors.NEON_GREEN),
+                ('📊 ACCURACY', 'accuracy', Colors.NEON_YELLOW)
+            ]
+            
+            for j, (stat_name, stat_key, stat_color) in enumerate(stat_info):
+                stat_y_pos = stats_y + j * 32
+                
+                # Stat label
+                stat_label = self.font_small.render(stat_name, True, (180, 190, 200))
+                self.screen.blit(stat_label, (stats_x, stat_y_pos))
+                
+                # Stat bar (3D effect)
+                bar_width = 120
+                bar_height = 12
+                bar_x = stats_x + 10
+                bar_y = stat_y_pos + 14
+                
+                # Bar background (dark)
+                pygame.draw.rect(self.screen, (20, 25, 35), (bar_x, bar_y, bar_width, bar_height), border_radius=6)
+                
+                # Bar border
+                pygame.draw.rect(self.screen, (60, 70, 90), (bar_x, bar_y, bar_width, bar_height), 2, border_radius=6)
+                
+                # Value bar with gradient effect
+                value_width = int((stats[stat_key] / 10) * bar_width)
+                if value_width > 0:
+                    for k in range(value_width):
+                        ratio = k / bar_width
+                        color_intensity = 0.6 + 0.4 * ratio
+                        bar_r = int(stat_color[0] * color_intensity)
+                        bar_g = int(stat_color[1] * color_intensity)
+                        bar_b = int(stat_color[2] * color_intensity)
+                        pygame.draw.rect(self.screen, (bar_r, bar_g, bar_b), 
+                                       (bar_x + k, bar_y + 1, 1, bar_height - 2))
+                    
+                    # Glow on top of bar
+                    glow_surf = pygame.Surface((value_width, bar_height // 2), pygame.SRCALPHA)
+                    glow_surf.fill((*stat_color, 60))
+                    self.screen.blit(glow_surf, (bar_x, bar_y))
+                
+                # Value text
+                value_text = f"{stats[stat_key]}/10"
+                value_surf = self.font_small.render(value_text, True, Colors.WHITE)
+                self.screen.blit(value_surf, (bar_x + bar_width + 8, stat_y_pos + 10))
+            
+            # === "EQUIPPED" BADGE ===
+            if is_current:
+                equipped_bg_width = 140
+                equipped_bg_height = 35
+                equipped_x = card_x + card_width - equipped_bg_width - 15
+                equipped_y = y + card_height - equipped_bg_height - 10
+                
+                # Badge background with glow
+                badge_surf = pygame.Surface((equipped_bg_width, equipped_bg_height), pygame.SRCALPHA)
+                pygame.draw.rect(badge_surf, (50, 180, 50, 200), (0, 0, equipped_bg_width, equipped_bg_height), border_radius=8)
+                pygame.draw.rect(badge_surf, Colors.NEON_GREEN, (0, 0, equipped_bg_width, equipped_bg_height), 2, border_radius=8)
+                self.screen.blit(badge_surf, (equipped_x, equipped_y))
+                
+                equipped_font = pygame.font.Font(None, 32)
+                equipped_text = equipped_font.render("✓ EQUIPPED", True, Colors.WHITE)
+                self.screen.blit(equipped_text, (equipped_x + equipped_bg_width//2 - equipped_text.get_width()//2, 
+                                                 equipped_y + equipped_bg_height//2 - equipped_text.get_height()//2))
+        
+        # === INSTRUCTIONS WITH STYLING ===
+        inst_y = self.screen_height - 110
+        
+        # Instructions background panel
+        inst_panel_width = 700
+        inst_panel_height = 85
+        inst_panel_x = self.screen_width//2 - inst_panel_width//2
+        inst_panel_surf = pygame.Surface((inst_panel_width, inst_panel_height), pygame.SRCALPHA)
+        inst_panel_surf.fill((20, 30, 45, 200))
+        pygame.draw.rect(inst_panel_surf, (80, 100, 140), (0, 0, inst_panel_width, inst_panel_height), 2, border_radius=10)
+        self.screen.blit(inst_panel_surf, (inst_panel_x, inst_y))
+        
+        instructions = [
+            "↑↓ ARROWS - Select Loadout",
+            "ENTER / CLICK - Confirm & Equip",
+            "ESC - Back to Menu"
+        ]
+        
+        for i, inst in enumerate(instructions):
+            inst_surf = self.font_medium.render(inst, True, (200, 220, 240))
+            self.screen.blit(inst_surf, (self.screen_width//2 - inst_surf.get_width()//2, inst_y + 10 + i * 25))
+        
+        # === BACK BUTTON ===
+        back_button_rect = pygame.Rect(50, self.screen_height - 100, 200, 60)
+        mouse_pos = pygame.mouse.get_pos()
+        back_hover = back_button_rect.collidepoint(mouse_pos)
+        
+        back_surf = pygame.Surface((200, 60), pygame.SRCALPHA)
+        if back_hover:
+            pygame.draw.rect(back_surf, (80, 90, 110, 200), (0, 0, 200, 60), border_radius=10)
+            pygame.draw.rect(back_surf, Colors.NEON_CYAN, (0, 0, 200, 60), 2, border_radius=10)
+        else:
+            pygame.draw.rect(back_surf, (40, 40, 60, 150), (0, 0, 200, 60), border_radius=10)
+            pygame.draw.rect(back_surf, (80, 90, 110), (0, 0, 200, 60), 2, border_radius=10)
+        
+        self.screen.blit(back_surf, (50, self.screen_height - 100))
+        
+        back_text = self.font_large.render("← BACK", True, Colors.WHITE if back_hover else Colors.LIGHT_GRAY)
+        self.screen.blit(back_text, (50 + 100 - back_text.get_width()//2, self.screen_height - 100 + 30 - back_text.get_height()//2))
+    
+    def _render_settings(self):
+        """⚙️ SETTINGS SCREEN - Professional & Comprehensive"""
+        current_time = pygame.time.get_ticks()
+        
+        # === BACKGROUND: Dark tactical gradient ===
+        for y in range(self.screen_height):
+            ratio = y / self.screen_height
+            r = int(15 + (25 - 15) * ratio)
+            g = int(18 + (28 - 18) * ratio)
+            b = int(22 + (35 - 22) * ratio)
+            pygame.draw.line(self.screen, (r, g, b), (0, y), (self.screen_width, y))
+        
+        # === GRID OVERLAY ===
+        grid_alpha = 20
+        grid_spacing = 80
+        for x in range(0, self.screen_width, grid_spacing):
+            pygame.draw.line(self.screen, (40, 50, 60, grid_alpha), (x, 0), (x, self.screen_height), 1)
+        for y in range(0, self.screen_height, grid_spacing):
+            pygame.draw.line(self.screen, (40, 50, 60, grid_alpha), (0, y), (self.screen_width, y), 1)
+        
+        # === TITLE ===
+        title_font = pygame.font.Font(None, 72)
+        title = title_font.render("⚙️ GAME SETTINGS ⚙️", True, Colors.NEON_CYAN)
+        title_shadow = title_font.render("⚙️ GAME SETTINGS ⚙️", True, (20, 20, 20))
+        self.screen.blit(title_shadow, (self.screen_width//2 - title.get_width()//2 + 3, 53))
+        self.screen.blit(title, (self.screen_width//2 - title.get_width()//2, 50))
+        
+        # === SETTINGS LIST ===
+        setting_height = 80
+        start_y = 180
+        setting_x = self.screen_width//2 - 400
+        mouse_pos = pygame.mouse.get_pos()
+        
+        # Calculate visible settings (scrollable list)
+        visible_items = 6  # Show 6 settings at a time
+        visible_start = self.settings_scroll_offset
+        visible_end = min(visible_start + visible_items, len(self.settings_keys))
+        
+        for idx in range(visible_start, visible_end):
+            i = idx
+            key = self.settings_keys[i]
+            setting = self.settings[key]
+            # Adjust y position based on scroll offset
+            y = start_y + (i - self.settings_scroll_offset) * setting_height
+            is_selected = (i == self.settings_selection)
+            
+            # Setting background
+            setting_rect = pygame.Rect(setting_x, y, 800, 70)
+            setting_hover = setting_rect.collidepoint(mouse_pos)
+            
+            setting_surf = pygame.Surface((800, 70), pygame.SRCALPHA)
+            if is_selected or setting_hover:
+                pulse = abs(math.sin(current_time / 300)) if is_selected else 0.5
+                glow_alpha = int(50 + 50 * pulse)
+                pygame.draw.rect(setting_surf, (60, 70, 90, glow_alpha), (0, 0, 800, 70), border_radius=10)
+                pygame.draw.rect(setting_surf, Colors.NEON_CYAN, (0, 0, 800, 70), 2, border_radius=10)
+            else:
+                pygame.draw.rect(setting_surf, (40, 40, 60, 100), (0, 0, 800, 70), border_radius=10)
+                pygame.draw.rect(setting_surf, (80, 90, 110), (0, 0, 800, 70), 1, border_radius=10)
+            
+            self.screen.blit(setting_surf, (setting_x, y))
+            
+            # Setting name
+            name_color = Colors.WHITE if is_selected else Colors.LIGHT_GRAY
+            name_surf = self.font_large.render(setting['name'], True, name_color)
+            self.screen.blit(name_surf, (setting_x + 20, y + 25))
+            
+            # Setting control (slider, toggle, or choice)
+            control_x = setting_x + 450
+            
+            if setting['type'] == 'slider':
+                # Slider
+                slider_width = 300
+                slider_height = 8
+                slider_y = y + 35
+                
+                # Slider track
+                pygame.draw.rect(self.screen, (60, 60, 80), (control_x, slider_y, slider_width, slider_height), border_radius=4)
+                
+                # Slider fill
+                value_ratio = (setting['value'] - setting['min']) / (setting['max'] - setting['min'])
+                fill_width = int(value_ratio * slider_width)
+                pygame.draw.rect(self.screen, Colors.NEON_CYAN, (control_x, slider_y, fill_width, slider_height), border_radius=4)
+                
+                # Slider handle
+                handle_x = control_x + fill_width
+                pygame.draw.circle(self.screen, Colors.WHITE, (handle_x, slider_y + slider_height//2), 12)
+                pygame.draw.circle(self.screen, Colors.NEON_CYAN, (handle_x, slider_y + slider_height//2), 10)
+                
+                # Value display
+                if key == 'mouse_sensitivity':
+                    value_text = f"{setting['value']:.3f}"
+                elif key in ['fov', 'brightness']:
+                    value_text = f"{setting['value']:.1f}" if key == 'brightness' else f"{int(setting['value'])}"
+                else:
+                    value_text = f"{int(setting['value'] * 100)}%"
+                
+                value_surf = self.font_medium.render(value_text, True, Colors.WHITE)
+                self.screen.blit(value_surf, (control_x + slider_width + 15, y + 22))
+            
+            elif setting['type'] == 'toggle':
+                # Toggle switch
+                toggle_width = 100
+                toggle_height = 40
+                toggle_y = y + 20
+                
+                # Toggle background
+                toggle_color = Colors.NEON_GREEN if setting['value'] else (80, 80, 100)
+                pygame.draw.rect(self.screen, toggle_color, (control_x, toggle_y, toggle_width, toggle_height), border_radius=20)
+                
+                # Toggle circle
+                circle_x = control_x + toggle_width - 25 if setting['value'] else control_x + 25
+                pygame.draw.circle(self.screen, Colors.WHITE, (circle_x, toggle_y + toggle_height//2), 15)
+                
+                # Status text
+                status_text = "ON" if setting['value'] else "OFF"
+                status_color = Colors.NEON_GREEN if setting['value'] else Colors.LIGHT_GRAY
+                status_surf = self.font_medium.render(status_text, True, status_color)
+                self.screen.blit(status_surf, (control_x + toggle_width + 15, y + 22))
+            
+            elif setting['type'] == 'choice':
+                # Choice selector with arrows
+                choice_text = setting['options'][setting['value']]
+                
+                # Left arrow
+                left_arrow = self.font_large.render("◄", True, Colors.NEON_CYAN if setting_hover else Colors.LIGHT_GRAY)
+                self.screen.blit(left_arrow, (control_x, y + 20))
+                
+                # Choice text
+                choice_surf = self.font_large.render(choice_text, True, Colors.WHITE)
+                self.screen.blit(choice_surf, (control_x + 50, y + 20))
+                
+                # Right arrow
+                right_arrow = self.font_large.render("►", True, Colors.NEON_CYAN if setting_hover else Colors.LIGHT_GRAY)
+                self.screen.blit(right_arrow, (control_x + 220, y + 20))
+        
+        # === SCROLL INDICATORS ===
+        max_scroll = max(0, len(self.settings_keys) - visible_items)
+        
+        # Show scroll up indicator
+        if self.settings_scroll_offset > 0:
+            scroll_up_y = start_y - 40
+            scroll_up_text = self.font_large.render("▲ MORE SETTINGS ▲", True, Colors.NEON_CYAN)
+            pulse = abs(math.sin(current_time / 200))
+            scroll_up_text.set_alpha(int(150 + 105 * pulse))
+            self.screen.blit(scroll_up_text, (self.screen_width//2 - scroll_up_text.get_width()//2, scroll_up_y))
+        
+        # Show scroll down indicator
+        if self.settings_scroll_offset < max_scroll:
+            scroll_down_y = start_y + visible_items * setting_height + 10
+            scroll_down_text = self.font_large.render("▼ MORE SETTINGS ▼", True, Colors.NEON_CYAN)
+            pulse = abs(math.sin(current_time / 200))
+            scroll_down_text.set_alpha(int(150 + 105 * pulse))
+            self.screen.blit(scroll_down_text, (self.screen_width//2 - scroll_down_text.get_width()//2, scroll_down_y))
+        
+        # Scrollbar on the right side
+        if len(self.settings_keys) > visible_items:
+            scrollbar_x = setting_x + 820
+            scrollbar_y = start_y
+            scrollbar_height = visible_items * setting_height
+            scrollbar_width = 8
+            
+            # Scrollbar track
+            pygame.draw.rect(self.screen, (40, 40, 60), (scrollbar_x, scrollbar_y, scrollbar_width, scrollbar_height), border_radius=4)
+            
+            # Scrollbar thumb
+            thumb_height = int((visible_items / len(self.settings_keys)) * scrollbar_height)
+            thumb_y = scrollbar_y + int((self.settings_scroll_offset / max_scroll) * (scrollbar_height - thumb_height)) if max_scroll > 0 else scrollbar_y
+            pygame.draw.rect(self.screen, Colors.NEON_CYAN, (scrollbar_x, thumb_y, scrollbar_width, thumb_height), border_radius=4)
+        
+        # === INSTRUCTIONS ===
+        inst_y = self.screen_height - 180
+        instructions = [
+            "↑↓ ARROWS / SCROLL - Navigate",
+            "←→ ARROWS - Adjust Value",
+            "CLICK - Interact with Controls",
+            "ESC - Save & Back to Menu"
+        ]
+        
+        for i, inst in enumerate(instructions):
+            inst_surf = self.font_medium.render(inst, True, (180, 190, 200))
+            self.screen.blit(inst_surf, (self.screen_width//2 - inst_surf.get_width()//2, inst_y + i * 30))
+        
+        # === BACK BUTTON ===
+        back_button_rect = pygame.Rect(50, self.screen_height - 100, 200, 60)
+        back_hover = back_button_rect.collidepoint(mouse_pos)
+        
+        back_surf = pygame.Surface((200, 60), pygame.SRCALPHA)
+        if back_hover:
+            pygame.draw.rect(back_surf, (80, 90, 110, 200), (0, 0, 200, 60), border_radius=10)
+            pygame.draw.rect(back_surf, Colors.NEON_CYAN, (0, 0, 200, 60), 2, border_radius=10)
+        else:
+            pygame.draw.rect(back_surf, (40, 40, 60, 150), (0, 0, 200, 60), border_radius=10)
+            pygame.draw.rect(back_surf, (80, 90, 110), (0, 0, 200, 60), 2, border_radius=10)
+        
+        self.screen.blit(back_surf, (50, self.screen_height - 100))
+        
+        back_text = self.font_large.render("← BACK", True, Colors.WHITE if back_hover else Colors.LIGHT_GRAY)
+        self.screen.blit(back_text, (50 + 100 - back_text.get_width()//2, self.screen_height - 100 + 30 - back_text.get_height()//2))
+        
+        # === RESET BUTTON ===
+        reset_button_rect = pygame.Rect(self.screen_width - 250, self.screen_height - 100, 200, 60)
+        reset_hover = reset_button_rect.collidepoint(mouse_pos)
+        
+        reset_surf = pygame.Surface((200, 60), pygame.SRCALPHA)
+        if reset_hover:
+            pygame.draw.rect(reset_surf, (120, 60, 60, 200), (0, 0, 200, 60), border_radius=10)
+            pygame.draw.rect(reset_surf, Colors.NEON_RED, (0, 0, 200, 60), 2, border_radius=10)
+        else:
+            pygame.draw.rect(reset_surf, (40, 40, 60, 150), (0, 0, 200, 60), border_radius=10)
+            pygame.draw.rect(reset_surf, (100, 80, 80), (0, 0, 200, 60), 2, border_radius=10)
+        
+        self.screen.blit(reset_surf, (self.screen_width - 250, self.screen_height - 100))
+        
+        reset_text = self.font_large.render("🔄 RESET", True, Colors.WHITE if reset_hover else Colors.LIGHT_GRAY)
+        self.screen.blit(reset_text, (self.screen_width - 250 + 100 - reset_text.get_width()//2, self.screen_height - 100 + 30 - reset_text.get_height()//2))
     
     def _render_game(self):
         """Render the FPS game with STUNNING VISUALS AND BEAUTIFUL MAP"""
@@ -2824,6 +5155,7 @@ class FPSGame:
         self._render_notifications()
         self._render_killstreak_display()
         self._render_achievement_popups()
+        self._render_reward_notifications()
         self._render_power_ups_hud()
     
     def _render_enemies(self):
@@ -3928,6 +6260,11 @@ class FPSGame:
         health_text = self.font_medium.render(f"HP: {int(self.player_health)}", True, Colors.WHITE)
         self.screen.blit(health_text, (25, 23))
         
+        # LIVES COUNTER - HARDCORE MODE
+        lives_color = Colors.GREEN if self.lives > 1 else Colors.RED
+        lives_text = self.font_medium.render(f"♥ LIVES: {self.lives}", True, lives_color)
+        self.screen.blit(lives_text, (240, 23))
+        
         # Invincibility indicator (glowing cyan border)
         if self.invincible:
             pulse = abs(math.sin(pygame.time.get_ticks() / 200))
@@ -4060,13 +6397,42 @@ class FPSGame:
         # === REALISTIC MECHANICS INDICATORS ===
         indicator_y = self.screen_height - 150
         
+        # Sprint indicator (when sprinting)
+        if self.is_sprinting:
+            sprint_bg = pygame.Surface((120, 35), pygame.SRCALPHA)
+            pulse = abs(math.sin(pygame.time.get_ticks() / 200))
+            pygame.draw.rect(sprint_bg, (50, 100, 50, int(150 + 105 * pulse)), (0, 0, 120, 35), border_radius=5)
+            self.screen.blit(sprint_bg, (20, indicator_y))
+            sprint_text = self.font_small.render("⚡ SPRINT", True, Colors.NEON_GREEN)
+            self.screen.blit(sprint_text, (25, indicator_y + 8))
+            indicator_y -= 45
+        
+        # ADS (Aim Down Sights) indicator
+        if self.is_aiming:
+            ads_bg = pygame.Surface((120, 35), pygame.SRCALPHA)
+            pygame.draw.rect(ads_bg, (80, 50, 50, 200), (0, 0, 120, 35), border_radius=5)
+            self.screen.blit(ads_bg, (20, indicator_y))
+            ads_text = self.font_small.render("🎯 AIMING", True, Colors.NEON_RED)
+            self.screen.blit(ads_text, (25, indicator_y + 8))
+            indicator_y -= 45
+        
         # Crouch indicator
         if self.is_crouching:
-            crouch_bg = pygame.Surface((100, 35), pygame.SRCALPHA)
-            pygame.draw.rect(crouch_bg, (50, 50, 80, 200), (0, 0, 100, 35), border_radius=5)
+            crouch_bg = pygame.Surface((120, 35), pygame.SRCALPHA)
+            pygame.draw.rect(crouch_bg, (50, 50, 80, 200), (0, 0, 120, 35), border_radius=5)
             self.screen.blit(crouch_bg, (20, indicator_y))
             crouch_text = self.font_small.render("🧎 CROUCH", True, Colors.NEON_CYAN)
             self.screen.blit(crouch_text, (25, indicator_y + 8))
+            indicator_y -= 45
+        
+        # Low stamina warning
+        if self.stamina < 20:
+            warn_bg = pygame.Surface((150, 35), pygame.SRCALPHA)
+            flash = abs(math.sin(pygame.time.get_ticks() / 150))
+            pygame.draw.rect(warn_bg, (100, 0, 0, int(150 + 105 * flash)), (0, 0, 150, 35), border_radius=5)
+            self.screen.blit(warn_bg, (20, indicator_y))
+            warn_text = self.font_small.render("⚠️ LOW STAMINA", True, Colors.RED)
+            self.screen.blit(warn_text, (25, indicator_y + 8))
             indicator_y -= 45
         
         # Lean indicators
@@ -4121,6 +6487,82 @@ class FPSGame:
                 shadow = self.font_large.render(f"🔥 {self.killstreak} KILLSTREAK! 🔥", True, (255, 100, 0, alpha))
                 self.screen.blit(shadow, (self.screen_width//2 - killstreak_text.get_width()//2 + offset[0], 150 + offset[1]))
             self.screen.blit(killstreak_text, (self.screen_width//2 - killstreak_text.get_width()//2, 150))
+        
+        # === HEALING PROGRESS INDICATOR ===
+        if self.is_healing:
+            # Center healing UI
+            heal_box_width = 400
+            heal_box_height = 120
+            heal_x = self.screen_width // 2 - heal_box_width // 2
+            heal_y = self.screen_height // 2 + 150
+            
+            # Background with glow
+            for i in range(3):
+                glow_rect = pygame.Surface((heal_box_width + i*10, heal_box_height + i*10), pygame.SRCALPHA)
+                pygame.draw.rect(glow_rect, (0, 255, 100, 30 - i*5), 
+                               (0, 0, heal_box_width + i*10, heal_box_height + i*10), border_radius=15)
+                self.screen.blit(glow_rect, (heal_x - i*5, heal_y - i*5))
+            
+            # Main background
+            pygame.draw.rect(self.screen, (20, 40, 20, 230), 
+                           (heal_x, heal_y, heal_box_width, heal_box_height), border_radius=10)
+            
+            # Title
+            heal_names = {'bandage': '🩹 APPLYING BANDAGE', 'medkit': '🏥 USING MEDKIT', 'surgery': '⚕️ SURGERY'}
+            title = heal_names.get(self.healing_type, '🏥 HEALING')
+            title_text = self.font_large.render(title, True, Colors.NEON_GREEN)
+            self.screen.blit(title_text, (heal_x + heal_box_width//2 - title_text.get_width()//2, heal_y + 15))
+            
+            # Progress bar
+            bar_width = 350
+            bar_height = 30
+            bar_x = heal_x + (heal_box_width - bar_width) // 2
+            bar_y = heal_y + 60
+            
+            # Bar background
+            pygame.draw.rect(self.screen, (30, 30, 30), (bar_x, bar_y, bar_width, bar_height), border_radius=5)
+            
+            # Progress fill with pulse
+            pulse = abs(math.sin(pygame.time.get_ticks() / 100))
+            fill_width = int(bar_width * self.healing_progress)
+            if fill_width > 0:
+                fill_color = (int(50 + 50*pulse), int(200 + 55*pulse), int(50 + 50*pulse))
+                pygame.draw.rect(self.screen, fill_color, (bar_x, bar_y, fill_width, bar_height), border_radius=5)
+            
+            # Border
+            pygame.draw.rect(self.screen, Colors.NEON_GREEN, (bar_x, bar_y, bar_width, bar_height), 3, border_radius=5)
+            
+            # Percentage
+            percent = int(self.healing_progress * 100)
+            percent_text = self.font_medium.render(f"{percent}%", True, Colors.WHITE)
+            self.screen.blit(percent_text, (bar_x + bar_width//2 - percent_text.get_width()//2, bar_y + 5))
+            
+            # Warning: Don't move!
+            warning_text = self.font_small.render("⚠️ Hold still! Healing in progress...", True, Colors.YELLOW)
+            self.screen.blit(warning_text, (heal_x + heal_box_width//2 - warning_text.get_width()//2, heal_y + 95))
+        
+        # === MEDICAL SUPPLIES COUNTER ===
+        med_y = self.screen_height - 280
+        
+        # Medkit count
+        medkit_bg = pygame.Surface((140, 40), pygame.SRCALPHA)
+        pygame.draw.rect(medkit_bg, (40, 60, 40, 200), (0, 0, 140, 40), border_radius=5)
+        self.screen.blit(medkit_bg, (self.screen_width - 180, med_y))
+        medkit_text = self.font_medium.render(f"🏥 Medkits: {self.medkits}", True, Colors.GREEN)
+        self.screen.blit(medkit_text, (self.screen_width - 175, med_y + 8))
+        
+        # Bandage count
+        bandage_bg = pygame.Surface((140, 40), pygame.SRCALPHA)
+        pygame.draw.rect(bandage_bg, (60, 50, 40, 200), (0, 0, 140, 40), border_radius=5)
+        self.screen.blit(bandage_bg, (self.screen_width - 180, med_y + 50))
+        bandage_text = self.font_medium.render(f"🩹 Bandages: {self.bandages}", True, Colors.YELLOW)
+        self.screen.blit(bandage_text, (self.screen_width - 175, med_y + 58))
+        
+        # Healing hints
+        hint_h = self.font_small.render("H: Use Medkit (+50 HP)", True, Colors.GRAY)
+        self.screen.blit(hint_h, (self.screen_width - 180, med_y + 95))
+        hint_b = self.font_small.render("B: Apply Bandage (+25 HP)", True, Colors.GRAY)
+        self.screen.blit(hint_b, (self.screen_width - 180, med_y + 115))
         
         # Weapon switch hints (bottom-left)
         hints_y = self.screen_height - 180
@@ -4739,8 +7181,10 @@ class FPSGame:
             
             # Main background
             bg_surface = pygame.Surface((bar_width, bar_height), pygame.SRCALPHA)
-            pygame.draw.rect(bg_surface, (20, 20, 40, alpha), (0, 0, bar_width, bar_height), border_radius=10)
-            pygame.draw.rect(bg_surface, (*notification['color'], alpha), (0, 0, bar_width, bar_height), 5, border_radius=10)
+            bg_color = (20, 20, 40, min(255, alpha))
+            border_color = (*notification['color'], min(255, alpha))
+            pygame.draw.rect(bg_surface, bg_color, (0, 0, bar_width, bar_height), border_radius=10)
+            pygame.draw.rect(bg_surface, border_color, (0, 0, bar_width, bar_height), 5, border_radius=10)
             self.screen.blit(bg_surface, (bar_x, y_pos))
             
             # Text with massive font
@@ -4800,6 +7244,145 @@ class FPSGame:
             desc_surface = desc_font.render(achievement['desc'], True, Colors.LIGHT_GRAY)
             desc_surface.set_alpha(alpha)
             self.screen.blit(desc_surface, (x_pos + 100, y_pos + 70))
+    
+    def _render_reward_notifications(self):
+        """🎁 Render kill milestone reward notifications - EPIC STYLE"""
+        current_time = time.time()
+        
+        # Remove expired notifications
+        self.reward_notifications = [r for r in self.reward_notifications 
+                                     if current_time - r['time'] < r['duration']]
+        
+        for i, reward in enumerate(self.reward_notifications):
+            age = current_time - reward['time']
+            duration = reward['duration']
+            
+            # Animation phases
+            if age < 0.8:
+                # Slide in from top with bounce
+                progress = age / 0.8
+                bounce = math.sin(progress * math.pi) * 0.2
+                y_offset = int(-300 * (1 - progress) * (1 + bounce))
+                alpha = int(255 * progress)
+                scale = 0.8 + (0.2 * progress)
+            elif age > duration - 1.5:
+                # Fade out
+                fade_progress = (duration - age) / 1.5
+                y_offset = int(-50 * (1 - fade_progress))
+                alpha = int(255 * fade_progress)
+                scale = 1.0
+            else:
+                # Stay visible with pulse
+                pulse = abs(math.sin((age - 0.8) * 2))
+                y_offset = int(5 * math.sin((age - 0.8) * 3))
+                alpha = 255
+                scale = 1.0 + (0.05 * pulse)
+            
+            # Position - Center top
+            base_y = 100 + i * 280
+            x_pos = self.screen_width // 2
+            y_pos = base_y + y_offset
+            
+            # === EPIC BACKGROUND BOX ===
+            box_width = int(600 * scale)
+            box_height = int(240 * scale)
+            box_x = x_pos - box_width // 2
+            box_y = y_pos
+            
+            # Multi-layer glow effect
+            for glow_size in range(30, 0, -5):
+                glow_alpha = int(alpha * 0.3 * (31 - glow_size) / 30)
+                glow_surf = pygame.Surface((box_width + glow_size * 2, box_height + glow_size * 2), pygame.SRCALPHA)
+                pygame.draw.rect(glow_surf, (*reward['tier_color'], glow_alpha), 
+                               (glow_size, glow_size, box_width, box_height), border_radius=20)
+                self.screen.blit(glow_surf, (box_x - glow_size, box_y - glow_size))
+            
+            # Main background
+            bg_surf = pygame.Surface((box_width, box_height), pygame.SRCALPHA)
+            bg_surf.set_alpha(alpha)
+            
+            # Gradient background
+            for y_line in range(box_height):
+                ratio = y_line / box_height
+                r = int(20 + (40 - 20) * ratio)
+                g = int(15 + (30 - 15) * ratio)
+                b = int(35 + (50 - 35) * ratio)
+                pygame.draw.line(bg_surf, (r, g, b, 200), (0, y_line), (box_width, y_line))
+            
+            # Border with tier color
+            pygame.draw.rect(bg_surf, reward['tier_color'], (0, 0, box_width, box_height), 5, border_radius=20)
+            pygame.draw.rect(bg_surf, (255, 255, 255, 100), (5, 5, box_width-10, box_height-10), 2, border_radius=18)
+            
+            self.screen.blit(bg_surf, (box_x, box_y))
+            
+            # === MILESTONE TITLE ===
+            title_font = pygame.font.Font(None, int(72 * scale))
+            title_text = f"🎯 {reward['kills']} KILLS!"
+            title_surf = title_font.render(title_text, True, Colors.WHITE)
+            title_surf.set_alpha(alpha)
+            
+            # Title shadow
+            shadow_surf = title_font.render(title_text, True, (0, 0, 0))
+            shadow_surf.set_alpha(int(alpha * 0.7))
+            self.screen.blit(shadow_surf, (x_pos - title_surf.get_width()//2 + 3, box_y + 23))
+            
+            # Title main
+            self.screen.blit(title_surf, (x_pos - title_surf.get_width()//2, box_y + 20))
+            
+            # === TIER BADGE ===
+            tier_font = pygame.font.Font(None, int(42 * scale))
+            tier_text = f"⭐ {reward['tier']} TIER ⭐"
+            tier_surf = tier_font.render(tier_text, True, reward['tier_color'])
+            tier_surf.set_alpha(alpha)
+            
+            # Tier glow
+            for glow in range(6, 0, -1):
+                glow_surf = tier_font.render(tier_text, True, reward['tier_color'])
+                glow_surf.set_alpha(int(alpha * 0.15 * (7 - glow) / 6))
+                self.screen.blit(glow_surf, (x_pos - tier_surf.get_width()//2 + glow, box_y + 85 + glow))
+            
+            self.screen.blit(tier_surf, (x_pos - tier_surf.get_width()//2, box_y + 85))
+            
+            # === REWARD LIST ===
+            reward_y = box_y + 135
+            reward_font = pygame.font.Font(None, int(32 * scale))
+            
+            for j, reward_text in enumerate(reward['rewards']):
+                # Determine icon and color based on reward type
+                if 'HP' in reward_text:
+                    icon = "❤️"
+                    text_color = (255, 100, 100)
+                elif 'ARMOR' in reward_text:
+                    icon = "🛡️"
+                    text_color = (100, 150, 255)
+                elif 'MAGAZINE' in reward_text:
+                    icon = "📦"
+                    text_color = (255, 200, 100)
+                elif 'SCORE' in reward_text:
+                    icon = "⭐"
+                    text_color = (255, 255, 100)
+                elif 'XP' in reward_text:
+                    icon = "✨"
+                    text_color = (150, 255, 200)
+                else:
+                    icon = "🎁"
+                    text_color = (200, 200, 200)
+                
+                reward_line = f"{icon} {reward_text}"
+                reward_surf = reward_font.render(reward_line, True, text_color)
+                reward_surf.set_alpha(alpha)
+                
+                # Calculate position for centering
+                line_x = x_pos - reward_surf.get_width()//2
+                line_y = reward_y + j * int(28 * scale)
+                
+                # Text shadow
+                shadow_surf = reward_font.render(reward_line, True, (0, 0, 0))
+                shadow_surf.set_alpha(int(alpha * 0.6))
+                self.screen.blit(shadow_surf, (line_x + 2, line_y + 2))
+                
+                # Main text
+                self.screen.blit(reward_surf, (line_x, line_y))
 
     def _render_power_ups_hud(self):
         """Render active power-ups on HUD"""
@@ -4857,39 +7440,43 @@ if __name__ == "__main__":
     game.player_z = 0  # Initialize z position
     
     print("=" * 60)
-    print("🧟 POST-APOCALYPTIC ZOMBIE SURVIVAL FPS 🧟")
+    print("🎖️  TACTICAL COMBAT SIMULATOR - OPERATION BLACKOUT  🎖️")
+    print("⚠️  REALISTIC MILITARY SIMULATION | 3 LIVES | PERMADEATH ⚠️")
     print("=" * 60)
     print("\n📋 CONTROLS:")
-    print("   WASD - Move")
-    print("   MOUSE - Look around")
-    print("   LEFT CLICK - Shoot")
-    print("   R - Reload")
-    print("   1-6 - Switch weapons")
-    print("   P - Toggle Camera (First/Third Person)")
-    print("   T - Toggle Time of Day")
-    print("   Y - Toggle Weather")
-    print("   G - Throw Grenade")
+    print("   WASD - Tactical Movement")
+    print("   MOUSE - Aim | Look Around")
+    print("   LEFT CLICK - Fire Weapon")
+    print("   R - Reload Magazine")
+    print("   1-6 - Switch Weapon")
+    print("   SHIFT - Sprint (Drains Stamina)")
+    print("   CTRL - Crouch (Stealth & Accuracy)")
+    print("   RIGHT CLICK - Aim Down Sights (ADS)")
+    print("   G - Frag Grenade")
     print("   V - Melee Attack")
-    print("   ESC - Back to menu")
-    print("\n🧟 ENEMIES:")
-    print("   WALKER - Slow, 80 HP")
-    print("   RUNNER - Fast, 50 HP")
-    print("   TANK - Strong, 200 HP")
-    print("\n🎯 OBJECTIVE:")
-    print("   Survive the zombie apocalypse!")
-    print("   Explore the destroyed city!")
-    print("   Earn points and level up!")
-    print("\n🔫 WEAPONS:")
-    print("   1: M4A1 Assault Rifle")
-    print("   2: Barrett .50 Cal Sniper")
-    print("   3: MP5 SMG")
-    print("   4: SPAS-12 Shotgun")
-    print("   5: Desert Eagle Pistol")
-    print("   6: M249 SAW LMG")
-    print("\n🏙️ ENVIRONMENT:")
-    print("   Post-Apocalyptic City")
-    print("   Destroyed Buildings & Debris")
-    print("   Dynamic Weather & Day/Night Cycle")
+    print("   ESC - Pause Menu")
+    print("\n🎯 HOSTILE FORCES:")
+    print("   TERRORIST - Infantry, 100 HP, Tactical")
+    print("   ELITE OPERATOR - Fast, 70 HP, Flanks")
+    print("   HEAVY GUNNER - Tank, 250 HP, High Firepower")
+    print("   SNIPER - Long range, 80 HP, Precision")
+    print("\n� MISSION OBJECTIVES:")
+    print("   > Eliminate all hostile combatants")
+    print("   > Survive and secure the area")
+    print("   > Manage resources (Ammo, Health, Stamina)")
+    print("   > Complete tactical objectives")
+    print("\n🔫 ARSENAL:")
+    print("   1: M4A1 Carbine - 5.56mm (Balanced)")
+    print("   2: Barrett M82 - .50 BMG (Anti-Material)")
+    print("   3: MP5 SMG - 9mm (CQB Specialist)")
+    print("   4: SPAS-12 - 12 Gauge (Breaching)")
+    print("   5: Desert Eagle - .50 AE (Sidearm)")
+    print("   6: M249 SAW - 5.56mm Belt-Fed (Suppression)")
+    print("\n🗺️  COMBAT ZONE:")
+    print("   Urban Warfare Environment")
+    print("   Multi-Story Buildings & Cover Points")
+    print("   Dynamic Weather & Time of Day")
+    print("   Realistic Ballistics & Bullet Drop")
     print("\n" + "=" * 60)
     print("Game starting... Navigate menu with arrow keys!")
     print("=" * 60)
