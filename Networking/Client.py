@@ -151,7 +151,7 @@ if __name__ == "__main__":
     print("═" * 80)
     
     #server = input("\nEnter server IP (default: 192.168.100.250): ") or "192.168.100.250"
-    server = "192.168.100.250"
+    server = "192.168.43.181"
     #port_input = input("Enter server port (default: 5050): ") or "5050"
     port = 5050
     name =  socket.gethostname()
