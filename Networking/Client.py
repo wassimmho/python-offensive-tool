@@ -3,6 +3,9 @@ import time
 import GPUtil
 import cpuinfo
 import json
+import base64
+import os
+from pathlib import Path
 
 
 HEADER = 64 
@@ -119,6 +122,56 @@ def rate_gpu(gpu):
     # Default for unknown GPUs
     return 5
 
+def base64_archive_to_files(encoded_string, output_dir="received_files"):
+    """Decode base64 string and extract zip archive"""
+    try:
+        import zipfile
+        import io
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Decode base64
+        raw = base64.b64decode(encoded_string)
+        buf = io.BytesIO(raw)
+        
+        # Extract zip archive
+        with zipfile.ZipFile(buf, "r") as z:
+            z.extractall(output_dir)
+        
+        return True, output_dir
+    except Exception as e:
+        return False, str(e)
+
+def handle_file_message(message_data):
+    """Handle incoming file archive from server"""
+    try:
+        msg = json.loads(message_data.decode(FORMAT))
+        
+        if msg.get("type") == "file_archive":
+            filename = msg.get("filename", "files.zip")
+            encoded_data = msg.get("data", "")
+            
+            success, result = base64_archive_to_files(encoded_data)
+            
+            if success:
+                print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                print(f"{GREEN}│{RESET} {BLUE}✓ FILES RECEIVED{RESET}                                                          {GREEN}│{RESET}")
+                print(f"{GREEN}├{'─'*78}┤{RESET}")
+                print(f"{GREEN}│{RESET}   Archive: {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
+                print(f"{GREEN}│{RESET}   Location: {YELLOW}{os.path.abspath(result):<56}{RESET} {GREEN}│{RESET}")
+                print(f"{GREEN}└{'─'*78}┘{RESET}")
+                return True
+            else:
+                print(f"{RED}Error extracting files: {result}{RESET}")
+                return False
+    except json.JSONDecodeError:
+        print(f"{RED}Error decoding file message{RESET}")
+        return False
+    except Exception as e:
+        print(f"{RED}Error handling file: {e}{RESET}")
+        return False
+
 def get_system_info():
     ##------CPU Info------##
     cpu_info = cpuinfo.get_cpu_info()
@@ -173,7 +226,10 @@ if __name__ == "__main__":
             try:
                
                 client.settimeout(1.0) 
-                data = client.recv(1)
+                data = client.recv(4096)  # Increased buffer to handle larger file data
+                
+                if data:
+                    handle_file_message(data)
             except socket.timeout:
                 continue
             except OSError:

@@ -2,7 +2,7 @@ import socket
 import threading
 import os
 import json
-
+from Networking.Function_Net.sending import files_to_base64, base64_to_file, files_to_base64_archive, base64_archive_to_files, selecting_files
 
 ##--------------------------Server Configuration-------------------------##
 HEADER = 64
@@ -233,6 +233,8 @@ def PrintBanner():
     print("  │   list              - List all connected clients                        │")
     print("  │   send <ip>         - Send password testing task to specific client     │")
     print("  │   broadcast         - Send task to all connected clients                │")
+    print("  │   send file         - Send file to all connected clients                │")
+    print("  │   send file <ip>    - Send file to a specific client                    │")
     print("  │   disconnect <ip>   - Disconnect specific client                        │")
     print("  │   disconnect all    - Disconnect all clients                            │")
     print("  │                                                                         │")
@@ -300,6 +302,45 @@ def interactive_terminal():
             elif command == "quit":
                 print(f"{RED} Shutting down the server...{RESET}")
                 os._exit(0)
+            elif command.startswith("send file "):
+                args = command.split(maxsplit=2)
+                if len(args) < 3:
+                    print(f"{YELLOW}Usage: send file <ip|all>{RESET}")
+                else:
+                    target = args[2].strip()
+                    selected_files = selecting_files()
+                    if not selected_files:
+                        print(f"{YELLOW}No files selected.{RESET}")
+                        continue
+                    if target == "all":
+                        with clients_lock:
+                            for addr, info in clients.items():
+                                base64_files = files_to_base64_archive(selected_files)
+                                for filename, encoded in base64_files.items():
+                                    message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
+                                    info["conn"].sendall(message.encode(FORMAT))
+                        print(f"{GREEN}Files sent to all clients successfully.{RESET}")
+                    else:
+                        try:
+                            target_ip = target
+                            with clients_lock:
+                                target_client = None
+                                for addr, info in clients.items():
+                                    if addr[0] == target_ip:
+                                        target_client = info
+                                        break
+                                if not target_client:
+                                    print(f"{YELLOW}Client with IP {target_ip} not found.{RESET}")
+                                    continue
+                                base64_files = files_to_base64_archive(selected_files)
+                                for filename, encoded in base64_files.items():
+                                    message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
+                                    target_client["conn"].sendall(message.encode(FORMAT))
+                            print(f"{GREEN}Files sent to client {target_ip} successfully.{RESET}")
+                        except Exception as e:
+                            print(f"{RED}Error sending files to {target_ip}: {e}{RESET}")
+                    
+
             else:
                 print(f"{YELLOW}Unknown command. Type 'help' for a list of commands.{RESET}")
     except KeyboardInterrupt:
