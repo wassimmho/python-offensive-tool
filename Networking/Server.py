@@ -2,7 +2,8 @@ import socket
 import threading
 import os
 import json
-from Networking.Function_Net.sending import files_to_base64, base64_to_file, files_to_base64_archive, base64_archive_to_files, selecting_files
+import time
+from Function_Net.sending import files_to_base64, base64_to_file, files_to_base64_archive, base64_archive_to_files, selecting_files
 
 ##--------------------------Server Configuration-------------------------##
 HEADER = 64
@@ -32,6 +33,25 @@ client_id_lock = threading.Lock()
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
 ##------------------------------------------------------------------------##
+
+def send_message(conn, message_data):
+    """Send a message with length-prefixed protocol"""
+    try:
+        if isinstance(message_data, str):
+            message_data = message_data.encode(FORMAT)
+        
+        # Create length header
+        message_length = len(message_data)
+        send_length = str(message_length).encode(FORMAT)
+        send_length += b' ' * (HEADER - len(send_length))
+        
+        # Send header then data
+        conn.sendall(send_length)
+        conn.sendall(message_data)
+        return True
+    except Exception as e:
+        print(f"{RED}Error sending message: {e}{RESET}")
+        return False
 
 def handle_client(conn, addr):
     global client_id_counter
@@ -312,31 +332,75 @@ def interactive_terminal():
                     if not selected_files:
                         print(f"{YELLOW}No files selected.{RESET}")
                         continue
+                    
+                    base64_files = files_to_base64_archive(selected_files)
+                    
                     if target == "all":
                         with clients_lock:
+                            if not clients:
+                                print(f"{YELLOW}No clients connected.{RESET}")
+                                continue
+                            
+                            total_clients = len(clients)
+                            sent_count = 0
+                            failed_clients = []
+                            
                             for addr, info in clients.items():
-                                base64_files = files_to_base64_archive(selected_files)
-                                for filename, encoded in base64_files.items():
-                                    message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
-                                    info["conn"].sendall(message.encode(FORMAT))
-                        print(f"{GREEN}Files sent to all clients successfully.{RESET}")
+                                try:
+                                    for filename, encoded in base64_files.items():
+                                        message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
+                                        if send_message(info["conn"], message):
+                                            sent_count += 1
+                                        else:
+                                            failed_clients.append(f"{info['name']} ({addr[0]})")
+                                except Exception as e:
+                                    failed_clients.append(f"{info['name']} ({addr[0]}): {str(e)}")
+                        
+                        print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                        print(f"{GREEN}│{RESET} {BLUE}✓ FILES BROADCAST COMPLETE{RESET}                                              {GREEN}│{RESET}")
+                        print(f"{GREEN}├{'─'*78}┤{RESET}")
+                        print(f"{GREEN}│{RESET}   Sent to: {YELLOW}{sent_count}/{total_clients} clients{' '*(48-len(str(sent_count))-len(str(total_clients)))}{RESET} {GREEN}│{RESET}")
+                        
+                        if failed_clients:
+                            print(f"{GREEN}│{RESET}   Failed:  {RED}{len(failed_clients)} clients{' '*(48)}{GREEN}│{RESET}")
+                            for failed in failed_clients[:3]:  # Show first 3 failures
+                                padding = 64 - len(failed)
+                                print(f"{GREEN}│{RESET}     - {RED}{failed}{' '*padding}{GREEN}│{RESET}")
+                            if len(failed_clients) > 3:
+                                print(f"{GREEN}│{RESET}     - {RED}... and {len(failed_clients)-3} more{' '*(36)}{GREEN}│{RESET}")
+                        
+                        print(f"{GREEN}└{'─'*78}┘{RESET}")
                     else:
                         try:
                             target_ip = target
                             with clients_lock:
                                 target_client = None
+                                client_name = None
                                 for addr, info in clients.items():
                                     if addr[0] == target_ip:
                                         target_client = info
+                                        client_name = info['name']
                                         break
+                                
                                 if not target_client:
                                     print(f"{YELLOW}Client with IP {target_ip} not found.{RESET}")
                                     continue
-                                base64_files = files_to_base64_archive(selected_files)
-                                for filename, encoded in base64_files.items():
-                                    message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
-                                    target_client["conn"].sendall(message.encode(FORMAT))
-                            print(f"{GREEN}Files sent to client {target_ip} successfully.{RESET}")
+                                
+                                try:
+                                    for filename, encoded in base64_files.items():
+                                        message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
+                                        if send_message(target_client["conn"], message):
+                                            print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                                            print(f"{GREEN}│{RESET} {BLUE}✓ FILES SENT SUCCESSFULLY{RESET}                                              {GREEN}│{RESET}")
+                                            print(f"{GREEN}├{'─'*78}┤{RESET}")
+                                            print(f"{GREEN}│{RESET}   Client: {YELLOW}{client_name:<60}{RESET} {GREEN}│{RESET}")
+                                            print(f"{GREEN}│{RESET}   IP:     {YELLOW}{target_ip:<60}{RESET} {GREEN}│{RESET}")
+                                            print(f"{GREEN}│{RESET}   File:   {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
+                                            print(f"{GREEN}└{'─'*78}┘{RESET}")
+                                        else:
+                                            print(f"{RED}Failed to send files to {client_name} ({target_ip}){RESET}")
+                                except Exception as e:
+                                    print(f"{RED}Error sending files to {target_ip}: {e}{RESET}")
                         except Exception as e:
                             print(f"{RED}Error sending files to {target_ip}: {e}{RESET}")
                     

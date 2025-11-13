@@ -143,6 +143,33 @@ def base64_archive_to_files(encoded_string, output_dir="received_files"):
     except Exception as e:
         return False, str(e)
 
+def receive_message(client_socket):
+    """Receive a complete message using length-prefixed protocol"""
+    try:
+        # Receive message length header
+        length_data = client_socket.recv(HEADER)
+        if not length_data:
+            return None
+        
+        message_length = int(length_data.decode(FORMAT).strip())
+        
+        # Receive the actual message data
+        message_data = b""
+        bytes_received = 0
+        
+        while bytes_received < message_length:
+            chunk = client_socket.recv(min(4096, message_length - bytes_received))
+            if not chunk:
+                print(f"{RED}Connection closed while receiving message{RESET}")
+                return None
+            message_data += chunk
+            bytes_received += len(chunk)
+        
+        return message_data
+    except Exception as e:
+        print(f"{RED}Error receiving message: {e}{RESET}")
+        return None
+
 def handle_file_message(message_data):
     """Handle incoming file archive from server"""
     try:
@@ -224,19 +251,24 @@ if __name__ == "__main__":
         
         while True:
             try:
-               
-                client.settimeout(1.0) 
-                data = client.recv(4096)  # Increased buffer to handle larger file data
+                client.settimeout(2.0)
+                message_data = receive_message(client)
                 
-                if data:
-                    handle_file_message(data)
+                if message_data:
+                    handle_file_message(message_data)
+                else:
+                    # Connection closed by server
+                    print(f"\n{YELLOW}[*] Server closed the connection{RESET}")
+                    break
+                    
             except socket.timeout:
                 continue
-            except OSError:
+            except OSError as e:
                 print(f"\n{RED}┌{'─'*78}┐{RESET}")
                 print(f"{RED}│{RESET} {YELLOW} CONNECTION LOST{RESET}                                                      {RED}│{RESET}")
                 print(f"{RED}├{'─'*78}┤{RESET}")
                 print(f"{RED}│{RESET}   Connection to server was forcibly closed.                              {RED}│{RESET}")
+                print(f"{RED}│{RESET}   Error: {str(e):<63}{RED}│{RESET}")
                 print(f"{RED}└{'─'*78}┘{RESET}")
                 print("\nPress Enter to exit...")
                 input()
