@@ -164,10 +164,9 @@ def receive_message(client_socket):
         return message_data
     
     except socket.timeout:
-        print(f"{RED}error while sending{RESET}")
         return None
     except Exception as e:
-        print(f"{RED}Error receiving themessage")
+        print(f"{RED}Error receiving the message: {e}{RESET}")
         return None
 
 def handle_file_message(message_data):
