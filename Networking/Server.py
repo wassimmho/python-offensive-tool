@@ -4,6 +4,8 @@ import os
 import json
 import time
 from Function_Net.sending import files_to_base64, base64_to_file, files_to_base64_archive, base64_archive_to_files, selecting_files
+from Function_Net.recieving import receive_and_decompress_file, receive_multiple_files, receive_file_simple
+from tkinter import Tk, filedialog
 
 ##--------------------------Server Configuration-------------------------##
 HEADER = 64
@@ -137,9 +139,55 @@ def handle_client(conn, addr):
             connected = True
             while connected:
                 try:
-                    data = conn.recv(HEADER)
-                    if not data:
+                    # Receive header length
+                    header_data = conn.recv(HEADER)
+                    if not header_data:
                         connected = False
+                        break
+                    
+                    message_length = int(header_data.decode(FORMAT).strip())
+                    
+                    # Receive the actual message
+                    message_data = b''
+                    while len(message_data) < message_length:
+                        chunk = conn.recv(min(4096, message_length - len(message_data)))
+                        if not chunk:
+                            connected = False
+                            break
+                        message_data += chunk
+                    
+                    if not connected:
+                        break
+                    
+                    # Parse the message
+                    try:
+                        message = json.loads(message_data.decode(FORMAT))
+                        
+                        # Handle file_archive messages from clients
+                        if message.get("type") == "file_archive":
+                            filename = message.get("filename")
+                            base64_data = message.get("data")
+                            
+                            if filename and base64_data:
+                                result = receive_and_decompress_file(base64_data, filename, output_dir="Networking/logs/files")
+                                
+                                if result['success']:
+                                    print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                                    print(f"{GREEN}│{RESET} {BLUE}✓ FILE RECEIVED FROM CLIENT{RESET}                                         {GREEN}│{RESET}")
+                                    print(f"{GREEN}├{'─'*78}┤{RESET}")
+                                    print(f"{GREEN}│{RESET}   Client: {YELLOW}{client_name:<60}{RESET} {GREEN}│{RESET}")
+                                    print(f"{GREEN}│{RESET}   File:   {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
+                                    print(f"{GREEN}│{RESET}   Size:   {YELLOW}{result['original_size']} bytes{' '*(48-len(str(result['original_size'])))}{RESET} {GREEN}│{RESET}")
+                                    print(f"{GREEN}│{RESET}   Saved:  {YELLOW}{result['path']:<60}{RESET} {GREEN}│{RESET}")
+                                    print(f"{GREEN}└{'─'*78}┘{RESET}")
+                                    print(f"{RED}Server> {RESET}", end="", flush=True)
+                                else:
+                                    print(f"\n{RED}Failed to receive file {filename}: {result['message']}{RESET}")
+                                    print(f"{RED}Server> {RESET}", end="", flush=True)
+                    
+                    except json.JSONDecodeError:
+                        pass
+                
                 except:
                     connected = False
                     
@@ -267,6 +315,111 @@ def PrintBanner():
     print("  └─────────────────────────────────────────────────────────────────────────┘")
     print("" + RESET)
 
+def select_file_dialog():
+    
+    root = Tk()
+    root.withdraw()  
+    root.attributes('-topmost', True) # avance le window vers le front
+    
+    file_path = filedialog.askopenfilename(
+        title="Select file to send",
+        filetypes=[("All files", "*.*")]
+    )
+    
+    root.destroy()
+    return file_path if file_path else None
+
+
+def send_file_to_clients(file_path, target_ip=None):
+    try:
+        if not file_path or not os.path.exists(file_path):
+            print(f"{RED}File not found: {file_path}{RESET}")
+            return
+        
+        filename = os.path.basename(file_path)
+        print(f"\n{BLUE}[*] Encoding file: {filename}...{RESET}")
+        # code the file to base64 and compress it
+        base64_files = files_to_base64_archive([file_path])
+        
+        if not base64_files:
+            print(f"{RED}Failed to encode file{RESET}")
+            return
+        
+        encoded_data = base64_files[filename]
+        message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded_data})
+        
+        if target_ip is None:
+            with clients_lock:
+                if not clients:
+                    print(f"{YELLOW}No clients connected.{RESET}")
+                    return
+                
+                total_clients = len(clients)
+                sent_count = 0
+                failed_clients = []
+                
+                for addr, info in clients.items():
+                    try:
+                        if send_message(info["conn"], message):
+                            sent_count += 1
+                        else:
+                            failed_clients.append(f"{info['name']} ({addr[0]})")
+                    except Exception as e:
+                        failed_clients.append(f"{info['name']} ({addr[0]}): {str(e)}")
+            
+            print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+            print(f"{GREEN}│{RESET} {BLUE}✓ FILES BROADCAST COMPLETE{RESET}                                              {GREEN}│{RESET}")
+            print(f"{GREEN}├{'─'*78}┤{RESET}")
+            print(f"{GREEN}│{RESET}   File:    {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
+            print(f"{GREEN}│{RESET}   Sent to: {YELLOW}{sent_count}/{total_clients} clients{' '*(48-len(str(sent_count))-len(str(total_clients)))}{RESET} {GREEN}│{RESET}")
+            
+            if failed_clients:
+                print(f"{GREEN}│{RESET}   Failed:  {RED}{len(failed_clients)} clients{' '*(48)}{GREEN}│{RESET}")
+                for failed in failed_clients[:3]:
+                    padding = 64 - len(failed)
+                    print(f"{GREEN}│{RESET}     - {RED}{failed}{' '*padding}{GREEN}│{RESET}")
+                if len(failed_clients) > 3:
+                    print(f"{GREEN}│{RESET}     - {RED}... and {len(failed_clients)-3} more{' '*(36)}{GREEN}│{RESET}")
+            
+            print(f"{GREEN}└{'─'*78}┘{RESET}")
+            print(f"{RED}Server> {RESET}", end="", flush=True)
+        
+        else:
+            # Send to specific client
+            with clients_lock:
+                target_client = None
+                client_name = None
+                for addr, info in clients.items():
+                    if addr[0] == target_ip:
+                        target_client = info
+                        client_name = info['name']
+                        break
+                
+                if not target_client:
+                    print(f"{YELLOW}Client with IP {target_ip} not found.{RESET}")
+                    print(f"{RED}Server> {RESET}", end="", flush=True)
+                    return
+                
+                try:
+                    if send_message(target_client["conn"], message):
+                        print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                        print(f"{GREEN}│{RESET} {BLUE}✓ FILE SENT SUCCESSFULLY{RESET}                                                {GREEN}│{RESET}")
+                        print(f"{GREEN}├{'─'*78}┤{RESET}")
+                        print(f"{GREEN}│{RESET}   Client: {YELLOW}{client_name:<60}{RESET} {GREEN}│{RESET}")
+                        print(f"{GREEN}│{RESET}   IP:     {YELLOW}{target_ip:<60}{RESET} {GREEN}│{RESET}")
+                        print(f"{GREEN}│{RESET}   File:   {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
+                        print(f"{GREEN}└{'─'*78}┘{RESET}")
+                    else:
+                        print(f"{RED}Failed to send file to {client_name} ({target_ip}){RESET}")
+                except Exception as e:
+                    print(f"{RED}Error sending file to {target_ip}: {e}{RESET}")
+                
+                print(f"{RED}Server> {RESET}", end="", flush=True)
+    
+    except Exception as e:
+        print(f"{RED}Error sending file: {e}{RESET}")
+        print(f"{RED}Server> {RESET}", end="", flush=True)
+
 def start():
     try:
         server.listen()
@@ -322,88 +475,17 @@ def interactive_terminal():
             elif command == "quit":
                 print(f"{RED} Shutting down the server...{RESET}")
                 os._exit(0)
-            elif command.startswith("send file "):
+            elif command.startswith("send file"):
                 args = command.split(maxsplit=2)
-                if len(args) < 3:
-                    print(f"{YELLOW}Usage: send file <ip|all>{RESET}")
+                target_ip = args[2].strip() if len(args) >= 3 else None
+                
+                file_path = select_file_dialog()
+                
+                if file_path:
+                    send_thread = threading.Thread(target=send_file_to_clients, args=(file_path, target_ip), daemon=True)
+                    send_thread.start()
                 else:
-                    target = args[2].strip()
-                    selected_files = selecting_files()
-                    if not selected_files:
-                        print(f"{YELLOW}No files selected.{RESET}")
-                        continue
-                    
-                    base64_files = files_to_base64_archive(selected_files)
-                    
-                    if target == "all":
-                        with clients_lock:
-                            if not clients:
-                                print(f"{YELLOW}No clients connected.{RESET}")
-                                continue
-                            
-                            total_clients = len(clients)
-                            sent_count = 0
-                            failed_clients = []
-                            
-                            for addr, info in clients.items():
-                                try:
-                                    for filename, encoded in base64_files.items():
-                                        message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
-                                        if send_message(info["conn"], message):
-                                            sent_count += 1
-                                        else:
-                                            failed_clients.append(f"{info['name']} ({addr[0]})")
-                                except Exception as e:
-                                    failed_clients.append(f"{info['name']} ({addr[0]}): {str(e)}")
-                        
-                        print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
-                        print(f"{GREEN}│{RESET} {BLUE}✓ FILES BROADCAST COMPLETE{RESET}                                              {GREEN}│{RESET}")
-                        print(f"{GREEN}├{'─'*78}┤{RESET}")
-                        print(f"{GREEN}│{RESET}   Sent to: {YELLOW}{sent_count}/{total_clients} clients{' '*(48-len(str(sent_count))-len(str(total_clients)))}{RESET} {GREEN}│{RESET}")
-                        
-                        if failed_clients:
-                            print(f"{GREEN}│{RESET}   Failed:  {RED}{len(failed_clients)} clients{' '*(48)}{GREEN}│{RESET}")
-                            for failed in failed_clients[:3]:  # Show first 3 failures
-                                padding = 64 - len(failed)
-                                print(f"{GREEN}│{RESET}     - {RED}{failed}{' '*padding}{GREEN}│{RESET}")
-                            if len(failed_clients) > 3:
-                                print(f"{GREEN}│{RESET}     - {RED}... and {len(failed_clients)-3} more{' '*(36)}{GREEN}│{RESET}")
-                        
-                        print(f"{GREEN}└{'─'*78}┘{RESET}")
-                    else:
-                        try:
-                            target_ip = target
-                            with clients_lock:
-                                target_client = None
-                                client_name = None
-                                for addr, info in clients.items():
-                                    if addr[0] == target_ip:
-                                        target_client = info
-                                        client_name = info['name']
-                                        break
-                                
-                                if not target_client:
-                                    print(f"{YELLOW}Client with IP {target_ip} not found.{RESET}")
-                                    continue
-                                
-                                try:
-                                    for filename, encoded in base64_files.items():
-                                        message = json.dumps({"type": "file_archive", "filename": filename, "data": encoded})
-                                        if send_message(target_client["conn"], message):
-                                            print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
-                                            print(f"{GREEN}│{RESET} {BLUE}✓ FILES SENT SUCCESSFULLY{RESET}                                              {GREEN}│{RESET}")
-                                            print(f"{GREEN}├{'─'*78}┤{RESET}")
-                                            print(f"{GREEN}│{RESET}   Client: {YELLOW}{client_name:<60}{RESET} {GREEN}│{RESET}")
-                                            print(f"{GREEN}│{RESET}   IP:     {YELLOW}{target_ip:<60}{RESET} {GREEN}│{RESET}")
-                                            print(f"{GREEN}│{RESET}   File:   {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
-                                            print(f"{GREEN}└{'─'*78}┘{RESET}")
-                                        else:
-                                            print(f"{RED}Failed to send files to {client_name} ({target_ip}){RESET}")
-                                except Exception as e:
-                                    print(f"{RED}Error sending files to {target_ip}: {e}{RESET}")
-                        except Exception as e:
-                            print(f"{RED}Error sending files to {target_ip}: {e}{RESET}")
-                    
+                    print(f"{YELLOW}No file selected.{RESET}")
 
             else:
                 print(f"{YELLOW}Unknown command. Type 'help' for a list of commands.{RESET}")

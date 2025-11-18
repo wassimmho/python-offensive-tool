@@ -6,13 +6,14 @@ import json
 import base64
 import os
 from pathlib import Path
+from Function_Net.recieving import receive_and_decompress_file
 
 
 HEADER = 64 
 FORMAT = 'utf-8'
 server = "192.168.100.66"
+#===========colors============#
 
-# ANSI escape codes
 RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
@@ -24,7 +25,7 @@ def setup_connection(server, port, client_name, system_info):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
     
-    # Send client name
+    #========= Send client name
     name_bytes = client_name.encode(FORMAT)
     name_length = len(name_bytes)
     send_length = str(name_length).encode(FORMAT)
@@ -33,7 +34,7 @@ def setup_connection(server, port, client_name, system_info):
     client.send(send_length)
     client.send(name_bytes)
     
-    # Send system info
+    #=========Send system info
     system_info_json = json.dumps(system_info)
     system_info_bytes = system_info_json.encode(FORMAT)
     system_info_length = len(system_info_bytes)
@@ -123,75 +124,73 @@ def rate_gpu(gpu):
     # Default for unknown GPUs
     return 5
 
-def base64_archive_to_files(encoded_string, output_dir="received_files"):
-    """Decode base64 string and extract zip archive"""
-    try:
-        import zipfile
-        import io
-        
-        # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Decode base64
-        raw = base64.b64decode(encoded_string)
-        buf = io.BytesIO(raw)
-        
-        # Extract zip archive
-        with zipfile.ZipFile(buf, "r") as z:
-            z.extractall(output_dir)
-        
-        return True, output_dir
-    except Exception as e:
-        return False, str(e)
-
 def receive_message(client_socket):
-    """Receive a complete message using length-prefixed protocol"""
+
     try:
-        # Receive message length header
+
+        client_socket.settimeout(10.0) 
         length_data = client_socket.recv(HEADER)
         if not length_data:
             return None
         
         message_length = int(length_data.decode(FORMAT).strip())
         
-        # Receive the actual message data
+
+        timeout = max(10.0, (message_length / 1024) * 0.001 + 5.0)
+        client_socket.settimeout(timeout)
+        
         message_data = b""
         bytes_received = 0
         
-        while bytes_received < message_length:
-            chunk = client_socket.recv(min(4096, message_length - bytes_received))
+        while bytes_received  < message_length:
+            remaining = message_length - bytes_received
+            chunk_size = min(65536, remaining) 
+
+            chunk = client_socket.recv(chunk_size)
+            
             if not chunk:
                 print(f"{RED}Connection closed while receiving message{RESET}")
                 return None
+            
             message_data += chunk
             bytes_received += len(chunk)
+            
+            
+            if message_length > 1048576: 
+                progress = (bytes_received / message_length) * 100
+                print(f"\r{BLUE}[*] Receiving file: {progress:.1f}%{RESET}", end="", flush=True)
         
+        print() 
         return message_data
+    
+    except socket.timeout:
+        print(f"{RED}error while sending{RESET}")
+        return None
     except Exception as e:
-        print(f"{RED}Error receiving message: {e}{RESET}")
+        print(f"{RED}Error receiving themessage")
         return None
 
 def handle_file_message(message_data):
-    """Handle incoming file archive from server"""
     try:
         msg = json.loads(message_data.decode(FORMAT))
         
         if msg.get("type") == "file_archive":
-            filename = msg.get("filename", "files.zip")
+            filename = msg.get("filename", "received_file")
             encoded_data = msg.get("data", "")
             
-            success, result = base64_archive_to_files(encoded_data)
+            result = receive_and_decompress_file(encoded_data, filename, output_dir="logs/files")
             
-            if success:
+            if result['success']:
                 print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
-                print(f"{GREEN}│{RESET} {BLUE}✓ FILES RECEIVED{RESET}                                                          {GREEN}│{RESET}")
+                print(f"{GREEN}│{RESET} {BLUE}✓ FILE RECEIVED{RESET}                                                          {GREEN}│{RESET}")
                 print(f"{GREEN}├{'─'*78}┤{RESET}")
-                print(f"{GREEN}│{RESET}   Archive: {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
-                print(f"{GREEN}│{RESET}   Location: {YELLOW}{os.path.abspath(result):<56}{RESET} {GREEN}│{RESET}")
+                print(f"{GREEN}│{RESET}   File:   {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
+                print(f"{GREEN}│{RESET}   Size:   {YELLOW}{result['original_size']} bytes{' '*(48-len(str(result['original_size'])))}{RESET} {GREEN}│{RESET}")
+                print(f"{GREEN}│{RESET}   Location: {YELLOW}{result['path']:<54}{RESET} {GREEN}│{RESET}")
                 print(f"{GREEN}└{'─'*78}┘{RESET}")
                 return True
             else:
-                print(f"{RED}Error extracting files: {result}{RESET}")
+                print(f"{RED}Error receiving file: {result['message']}{RESET}")
                 return False
     except json.JSONDecodeError:
         print(f"{RED}Error decoding file message{RESET}")
@@ -251,15 +250,10 @@ if __name__ == "__main__":
         
         while True:
             try:
-                client.settimeout(2.0)
                 message_data = receive_message(client)
                 
                 if message_data:
                     handle_file_message(message_data)
-                else:
-                    # Connection closed by server
-                    print(f"\n{YELLOW}[*] Server closed the connection{RESET}")
-                    break
                     
             except socket.timeout:
                 continue
@@ -284,6 +278,7 @@ if __name__ == "__main__":
         client.close()
         print("Connection closed.")
         print("\nPress Enter to exit...")
+
         input()
     except Exception as e:
         print(f"An error occurred: {e}")
