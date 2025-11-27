@@ -197,7 +197,7 @@ def handle_client(conn, addr):
                         
                         # Handle STATUS messages from workers (socket_client)
                         elif message.get("type") == "STATUS":
-                            worker_id = message.get("client_id")
+                            worker_id = message.get("worker_id") or message.get("client_id")
                             status = message.get("status")
                             if worker_id:
                                 with clients_lock:
@@ -206,6 +206,27 @@ def handle_client(conn, addr):
                                         clients[addr]["worker_status"] = status
                                 print(f"\n{BLUE}[WORKER] {worker_id} status: {status}{RESET}")
                                 print(f"{RED}Server> {RESET}", end="", flush=True)
+                        
+                        # Handle RESULT messages from workers after brute force
+                        elif message.get("type") == "RESULT":
+                            worker_id = message.get("worker_id")
+                            status = message.get("status")
+                            pattern = message.get("pattern")
+                            hash_value = message.get("hash", "unknown")
+                            
+                            if status == "CRACKED":
+                                print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                                print(f"{GREEN}│{RESET} 🎉 PATTERN CRACKED!                                                        {GREEN}│{RESET}")
+                                print(f"{GREEN}├{'─'*78}┤{RESET}")
+                                print(f"{GREEN}│{RESET}   Worker:   {YELLOW}{worker_id:<60}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}│{RESET}   Hash:     {YELLOW}{hash_value:<60}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}│{RESET}   Pattern:  {YELLOW}{pattern:<60}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}└{'─'*78}┘{RESET}")
+                                # Store in CRACKED_PATTERNS
+                                CRACKED_PATTERNS[hash_value] = pattern
+                            else:
+                                print(f"\n{YELLOW}[RESULT] {worker_id} finished - Pattern not found in assigned range{RESET}")
+                            print(f"{RED}Server> {RESET}", end="", flush=True)
                         
                         # Handle file_archive messages from clients
                         elif message.get("type") == "file_archive":
@@ -490,12 +511,12 @@ def send_file_to_clients(file_path, target_ip=None):
 def start():
     try:
         server.listen()
-        PrintBanner()
         while True:
             conn, addr = server.accept()
             thread = threading.Thread(target=handle_client, args=(conn, addr))
             thread.start()
-            print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
+            print(f"\n[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
+            print(f"{RED}Server> {RESET}", end="", flush=True)
     except KeyboardInterrupt:
         print("\nKeyboard Interrupt detected. Shutting down the server...")
     finally:
@@ -503,10 +524,55 @@ def start():
 
 
 def broadcating_BrutForcing():
+    # First, get the hash list and let user select one
+    db = ResearchDBManager()
+    entries = db.get_all_entries()
+    
+    if not entries:
+        print(f"{YELLOW}No hash entries found in database. Use 'hash add' to add entries first.{RESET}")
+        return
+    
+    # Display available hashes
+    print(f"\n{BLUE}┌{'─'*78}┐{RESET}")
+    print(f"{BLUE}│{RESET} 📋 SELECT A HASH TO BROADCAST                                              {BLUE}│{RESET}")
+    print(f"{BLUE}├{'─'*78}┤{RESET}")
+    
+    for i, (entry_id, encrypted) in enumerate(entries, 1):
+        print(f"{BLUE}│{RESET}   [{YELLOW}{i}{RESET}] {GREEN}{entry_id:<20}{RESET} -> {YELLOW}{encrypted}{RESET}")
+    
+    print(f"{BLUE}└{'─'*78}┘{RESET}")
+    
+    # Get user selection
+    try:
+        selection = input(f"{BLUE}Enter the number of the hash to broadcast (1-{len(entries)}): {RESET}").strip()
+        selection_idx = int(selection) - 1
+        
+        if selection_idx < 0 or selection_idx >= len(entries):
+            print(f"{RED}Invalid selection. Please enter a number between 1 and {len(entries)}.{RESET}")
+            return
+        
+        selected_entry_id, selected_hash = entries[selection_idx]
+        print(f"\n{GREEN}Selected hash: {selected_hash} (Entry: {selected_entry_id}){RESET}")
+        
+    except ValueError:
+        print(f"{RED}Invalid input. Please enter a valid number.{RESET}")
+        return
+    
+    # Broadcast the selected hash to all clients
     with clients_lock:
         try:
+            broadcast_data = json.dumps({
+                "type": "BROADCASTING",
+                "hash_value": selected_hash,
+                "entry_id": selected_entry_id
+            })
+            
+            sent_count = 0
             for addr, info in clients.items():
-                 send_message(info["conn"], "BROADCASTING")
+                if send_message(info["conn"], broadcast_data):
+                    sent_count += 1
+            
+            print(f"{GREEN}Broadcast sent to {sent_count}/{len(clients)} clients with hash: {selected_hash[:16]}...{RESET}")
 
         except Exception as e:
             print(f"{RED}Error broadcasting brute force message: {e}{RESET}")
@@ -857,7 +923,7 @@ def interactive_terminal():
     
     try:
         while True:
-            print(f"{RED}Server> {RESET}", end="")
+            print(f"{RED}Server> {RESET}", end="", flush=True)
             command = input().strip().lower()
             
             if command == "help":

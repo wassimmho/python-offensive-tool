@@ -1,15 +1,17 @@
 import math
+import random
 from pathlib import Path
 import pygame as pg
 from . import settings as S
 
 # AK-47 animation frames (loaded lazily)
 AK_FRAMES = []
+AK_FRAMES_FLIPPED = []  # Pre-flipped frames for left-facing
 AK_FRAMES_LOADED = False
 
 def load_ak_frames():
     """Load AK-47 animation frames - called after pygame is initialized"""
-    global AK_FRAMES, AK_FRAMES_LOADED
+    global AK_FRAMES, AK_FRAMES_FLIPPED, AK_FRAMES_LOADED
     if AK_FRAMES_LOADED:
         return
     try:
@@ -17,9 +19,12 @@ def load_ak_frames():
         ak_files = sorted(ak_folder.glob('*.png'))
         for ak_file in ak_files:
             img = pg.image.load(str(ak_file)).convert_alpha()
-            # Scale down to appropriate size for the game
-            scaled = pg.transform.smoothscale(img, (int(img.get_width() * 0.3), int(img.get_height() * 0.3)))
+            # Scale to a good size for the game (adjust as needed based on your images)
+            scale_factor = 0.15  # Smaller scale for better fit
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
             AK_FRAMES.append(scaled)
+            # Pre-flip for left-facing direction
+            AK_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
         if AK_FRAMES:
             print(f"Loaded {len(AK_FRAMES)} AK-47 animation frames")
         AK_FRAMES_LOADED = True
@@ -78,8 +83,11 @@ class Player(PhysicsSprite):
         self.weapon = None
         self.weapon_anim_frame = 0
         self.weapon_anim_timer = 0.0
-        self.weapon_frame_duration = 0.05  # How long each frame shows
-        self.weapon_frame_duration = 0.05  # How long each frame shows
+        self.weapon_frame_duration = 0.06  # How long each frame shows during firing
+        self.is_firing = False  # Track if currently in firing animation
+        self.firing_anim_duration = 0.18  # Total time to play full firing animation
+        self.firing_timer = 0.0
+        self.muzzle_flash_timer = 0.0  # For muzzle flash effect
     
     def draw_character(self):
         """Draw a proper character sprite"""
@@ -151,15 +159,25 @@ class Player(PhysicsSprite):
         
         self.shoot_cooldown = max(0, self.shoot_cooldown - dt)
         
-        # Update weapon animation
-        if self.shoot_cooldown > 0 and AK_FRAMES:
+        # Update weapon firing animation
+        if self.is_firing and AK_FRAMES:
+            self.firing_timer += dt
             self.weapon_anim_timer += dt
+            
+            # Cycle through frames during firing
             if self.weapon_anim_timer >= self.weapon_frame_duration:
                 self.weapon_anim_timer = 0
                 self.weapon_anim_frame = (self.weapon_anim_frame + 1) % len(AK_FRAMES)
-        else:
-            self.weapon_anim_frame = 0
-            self.weapon_anim_timer = 0
+            
+            # End firing animation after duration
+            if self.firing_timer >= self.firing_anim_duration:
+                self.is_firing = False
+                self.weapon_anim_frame = 0
+                self.firing_timer = 0.0
+        
+        # Update muzzle flash
+        if self.muzzle_flash_timer > 0:
+            self.muzzle_flash_timer -= dt
         
         if self.weapon and (keys[pg.K_j] or keys[pg.K_f] or pg.mouse.get_pressed()[0]):
             if self.shoot_cooldown <= 0:
@@ -174,29 +192,55 @@ class Player(PhysicsSprite):
                     direction = direction.normalize()
                 self.shoot_cooldown = self.weapon.cooldown
                 self.weapon.shoot(origin, direction, bullets)
+                
+                # Trigger firing animation for AK-47
+                if hasattr(self.weapon, 'has_sprite') and self.weapon.has_sprite:
+                    self.is_firing = True
+                    self.firing_timer = 0.0
+                    self.weapon_anim_timer = 0.0
+                    self.weapon_anim_frame = 1  # Start from first firing frame
+                    self.muzzle_flash_timer = 0.08  # Show muzzle flash briefly
         self.rect.topleft = self.pos
 
-    def draw(self, surf):
-        surf.blit(self.image, self.rect)
+    def draw(self, surf, offset=(0, 0)):
+        ox, oy = offset
+        # Draw player character with offset
+        surf.blit(self.image, self.rect.move(ox, oy))
         
-        # Draw weapon if equipped and has sprite
+        # Draw AK-47 weapon if equipped
         if self.weapon and hasattr(self.weapon, 'has_sprite') and self.weapon.has_sprite and AK_FRAMES:
-            weapon_img = AK_FRAMES[self.weapon_anim_frame]
-            
-            # Flip weapon based on facing direction
-            if self.facing < 0:
-                weapon_img = pg.transform.flip(weapon_img, True, False)
-            
-            # Position weapon in front of player (in hand position)
-            weapon_offset_x = 8 * self.facing
-            weapon_offset_y = 2
-            
-            # Calculate weapon position
+            # Use pre-flipped frames for better performance
             if self.facing > 0:
-                weapon_pos = (self.rect.right + weapon_offset_x - weapon_img.get_width(), 
-                             self.rect.centery + weapon_offset_y - weapon_img.get_height() // 2)
+                weapon_img = AK_FRAMES[self.weapon_anim_frame]
             else:
-                weapon_pos = (self.rect.left + weapon_offset_x, 
-                             self.rect.centery + weapon_offset_y - weapon_img.get_height() // 2)
+                weapon_img = AK_FRAMES_FLIPPED[self.weapon_anim_frame]
             
-            surf.blit(weapon_img, weapon_pos)
+            # Position weapon at player's hands
+            weapon_w = weapon_img.get_width()
+            weapon_h = weapon_img.get_height()
+            
+            # Offset to place weapon in hand position
+            if self.facing > 0:
+                # Facing right - weapon extends to the right
+                weapon_x = self.rect.centerx + 2 + ox
+                weapon_y = self.rect.centery - weapon_h // 2 + 4 + oy
+            else:
+                # Facing left - weapon extends to the left
+                weapon_x = self.rect.centerx - weapon_w - 2 + ox
+                weapon_y = self.rect.centery - weapon_h // 2 + 4 + oy
+            
+            surf.blit(weapon_img, (weapon_x, weapon_y))
+            
+            # Draw muzzle flash when firing
+            if self.muzzle_flash_timer > 0:
+                flash_size = random.randint(8, 14)
+                if self.facing > 0:
+                    flash_x = weapon_x + weapon_w + 2
+                else:
+                    flash_x = weapon_x - 4
+                flash_y = weapon_y + weapon_h // 2 - 2
+                
+                # Draw layered muzzle flash
+                pg.draw.circle(surf, (255, 255, 200), (flash_x, flash_y), flash_size)
+                pg.draw.circle(surf, (255, 200, 50), (flash_x, flash_y), flash_size - 3)
+                pg.draw.circle(surf, (255, 255, 255), (flash_x, flash_y), flash_size - 6)

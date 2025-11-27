@@ -336,9 +336,8 @@ class Game:
             self.screen.blit(spr.image, spr.rect.move(ox, oy))
         for spr in self.particles:
             self.screen.blit(spr.image, spr.rect.move(ox, oy))
-        # Draw player with shake
-        pr = self.player.rect.move(ox, oy)
-        self.screen.blit(self.player.image, pr)
+        # Draw player with shake (using player.draw to include weapon)
+        self.player.draw(self.screen, offset=(ox, oy))
         # Draw HUD (no shake)
         self.draw_hud()
         if self.state == S.STATE_PAUSED:

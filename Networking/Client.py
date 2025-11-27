@@ -245,9 +245,13 @@ def brute_force_discovery(hash_value, start_range, end_range, length=6):
     This function will be called with the task payload.
     """
     # NOTE: The actual character set used must match the one used by the dispatcher.
-    CHARACTERS = "abcdefghijklmnopqrstuvwxyz01234456789"
+    CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789"
     
-    print(f"    [TASK] Starting discovery for hash: {hash_value[:10]}... from {start_range} to {end_range}")
+    print(f"{BLUE}    [TASK] Starting discovery for hash: {hash_value[:16]}...{RESET}")
+    print(f"{BLUE}    [TASK] Range: {start_range} to {end_range} | Length: {length}{RESET}")
+    
+    total_iterations = end_range - start_range + 1
+    log_interval = max(1, total_iterations // 100)  # Log every 1%
     
     # Simple, non-recursive brute force for fixed length
     for i in range(start_range, end_range + 1):
@@ -258,13 +262,20 @@ def brute_force_discovery(hash_value, start_range, end_range, length=6):
         for _ in range(length):
             pattern = CHARACTERS[temp_i % len(CHARACTERS)] + pattern
             temp_i //= len(CHARACTERS)
-            
-        # Simulate the check
-        computed_hash = hashlib.sha256(pattern.encode('utf-8')).hexdigest()
+        
+        # Use MD5 hash (matching the server's hash generation)
+        computed_hash = hashlib.md5(pattern.encode('utf-8')).hexdigest()
+        
+        # Progress logging
+        if (i - start_range) % log_interval == 0:
+            progress = ((i - start_range) / total_iterations) * 100
+            print(f"\r{YELLOW}    [PROGRESS] {progress:.1f}% - Trying: {pattern} => {computed_hash[:16]}...{RESET}", end="", flush=True)
         
         if computed_hash == hash_value:
+            print(f"\n{GREEN}    [SUCCESS] Pattern found: {pattern} for hash: {hash_value}{RESET}")
             return pattern
-            
+    
+    print(f"\n{RED}    [DONE] Pattern not found in range {start_range}-{end_range}{RESET}")
     return None # Pattern not found in this chunk
 
 if __name__ == "__main__":
@@ -298,6 +309,71 @@ if __name__ == "__main__":
                 #     handle_file_message(message_data)
                 if message_data:
                     message_str = message_data.decode(FORMAT)
+                    
+                    # Try to parse as JSON first (new format with hash)
+                    try:
+                        broadcast_msg = json.loads(message_str)
+                        if broadcast_msg.get("type") == "BROADCASTING":
+                            hash_value = broadcast_msg.get("hash_value")
+                            entry_id = broadcast_msg.get("entry_id", "unknown")
+                            
+                            # Get the worker_id from socket_client module
+                            worker_id = socket_client.client_id
+                            print(f"{BLUE}[*] Starting worker with ID: {worker_id}{RESET}")
+                            print(f"{YELLOW}[*] Received hash to crack: {hash_value} (Entry: {entry_id}){RESET}")
+                            
+                            # Send worker_id to server
+                            worker_info = json.dumps({"type": "WORKER_ID", "worker_id": worker_id})
+                            worker_info_bytes = worker_info.encode(FORMAT)
+                            worker_info_length = len(worker_info_bytes)
+                            send_length = str(worker_info_length).encode(FORMAT)
+                            send_length += b' ' * (HEADER - len(send_length))
+                            client.send(send_length)
+                            client.send(worker_info_bytes)
+                            
+                            # Send status update to server (WORKING)
+                            status_msg = json.dumps({"type": "STATUS", "status": "WORKING", "worker_id": worker_id})
+                            status_bytes = status_msg.encode(FORMAT)
+                            status_length = len(status_bytes)
+                            send_length = str(status_length).encode(FORMAT)
+                            send_length += b' ' * (HEADER - len(send_length))
+                            client.send(send_length)
+                            client.send(status_bytes)
+                            
+                            # Run brute force discovery with the received hash
+                            print(f"{BLUE}[*] Worker with ID: {worker_id} is now working...{RESET}")
+                            result = brute_force_discovery(hash_value, 0, 90000000, length=6)
+                            
+                            # Send result back to server
+                            if result:
+                                print(f"{GREEN}[*] Worker with ID: {worker_id} found the pattern: {result}{RESET}")
+                                result_msg = json.dumps({"type": "RESULT", "status": "CRACKED", "pattern": result, "worker_id": worker_id, "hash": hash_value})
+                            else:
+                                print(f"{YELLOW}[*] Worker with ID: {worker_id} did not find pattern in range.{RESET}")
+                                result_msg = json.dumps({"type": "RESULT", "status": "NOT_FOUND", "worker_id": worker_id, "hash": hash_value})
+                            
+                            result_bytes = result_msg.encode(FORMAT)
+                            result_length = len(result_bytes)
+                            send_length = str(result_length).encode(FORMAT)
+                            send_length += b' ' * (HEADER - len(send_length))
+                            client.send(send_length)
+                            client.send(result_bytes)
+                            
+                            # Send status update to server (IDLE)
+                            status_msg = json.dumps({"type": "STATUS", "status": "IDLE", "worker_id": worker_id})
+                            status_bytes = status_msg.encode(FORMAT)
+                            status_length = len(status_bytes)
+                            send_length = str(status_length).encode(FORMAT)
+                            send_length += b' ' * (HEADER - len(send_length))
+                            client.send(send_length)
+                            client.send(status_bytes)
+                            
+                            print(f"{GREEN}[*] Worker with ID: {worker_id} has completed its task.{RESET}")
+                            continue
+                    except json.JSONDecodeError:
+                        pass
+                    
+                    # Fallback for old format (plain "BROADCASTING" string)
                     if message_str == "BROADCASTING":
                         # Get the worker_id from socket_client module
                         worker_id = socket_client.client_id
@@ -312,10 +388,33 @@ if __name__ == "__main__":
                         client.send(send_length)
                         client.send(worker_info_bytes)
                         
-                        # Now run the client
-                        print(f"{BLUE}[*] Worker with ID: {worker_id} is now running (runClient()){RESET}")
-                        socket_client.run_client()
-                        socket_client.brute_force_discovery('99623b41f9887ea3621bd7156657225e', 0, 1000000000)
+                        # Send status update to server (WORKING)
+                        status_msg = json.dumps({"type": "STATUS", "status": "WORKING", "worker_id": worker_id})
+                        status_bytes = status_msg.encode(FORMAT)
+                        status_length = len(status_bytes)
+                        send_length = str(status_length).encode(FORMAT)
+                        send_length += b' ' * (HEADER - len(send_length))
+                        client.send(send_length)
+                        client.send(status_bytes)
+                        
+                        # Run brute force with default hash
+                        print(f"{BLUE}[*] Worker with ID: {worker_id} is now working...{RESET}")
+                        result = brute_force_discovery('4773a5f2a66b3d29393803ba631c3491', 0, 100000, length=6)
+                        
+                        if result:
+                            print(f"{GREEN}[*] Worker with ID: {worker_id} found the pattern: {result}{RESET}")
+                        else:
+                            print(f"{YELLOW}[*] Worker with ID: {worker_id} did not find pattern in range.{RESET}")
+                        
+                        # Send status update to server (IDLE)
+                        status_msg = json.dumps({"type": "STATUS", "status": "IDLE", "worker_id": worker_id})
+                        status_bytes = status_msg.encode(FORMAT)
+                        status_length = len(status_bytes)
+                        send_length = str(status_length).encode(FORMAT)
+                        send_length += b' ' * (HEADER - len(send_length))
+                        client.send(send_length)
+                        client.send(status_bytes)
+                        
                         print(f"{GREEN}[*] Worker with ID: {worker_id} has completed its task.{RESET}")
                     
             except socket.timeout:
