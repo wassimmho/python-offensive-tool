@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from Function_Net.recieving import receive_and_decompress_file
 import hashlib
-
+from OFFLINE_bruteforce.Mohamed import socket_client 
 
 
 HEADER = 64 
@@ -167,6 +167,18 @@ def receive_message(client_socket):
     
     except socket.timeout:
         return None
+    except ConnectionResetError:
+        # Server forcibly closed the connection (WinError 10054)
+        raise  # Re-raise to be handled by the main loop
+    except ConnectionAbortedError:
+        # Connection was aborted
+        raise  # Re-raise to be handled by the main loop
+    except OSError as e:
+        # Check for connection reset errors (WinError 10054, 10053)
+        if e.winerror in (10054, 10053):
+            raise  # Re-raise to be handled by the main loop
+        print(f"{RED}Error receiving the message: {e}{RESET}")
+        return None
     except Exception as e:
         print(f"{RED}Error receiving the message: {e}{RESET}")
         return None
@@ -226,7 +238,7 @@ def get_system_info():
     }
 
 
-bru
+
 def brute_force_discovery(hash_value, start_range, end_range, length=6):
     """
     Simulates the actual brute-force work.
@@ -284,20 +296,61 @@ if __name__ == "__main__":
                 
                 # if message_data:
                 #     handle_file_message(message_data)
-                if message_data :
+                if message_data:
                     message_str = message_data.decode(FORMAT)
-                    if message_str == "BROADCASTING":   
-                        brute_force_discovery("example_hash", 0, 1000, length=6)
+                    if message_str == "BROADCASTING":
+                        # Get the worker_id from socket_client module
+                        worker_id = socket_client.client_id
+                        print(f"{BLUE}[*] Starting worker with ID: {worker_id}{RESET}")
+                        
+                        # Send worker_id to server
+                        worker_info = json.dumps({"type": "WORKER_ID", "worker_id": worker_id})
+                        worker_info_bytes = worker_info.encode(FORMAT)
+                        worker_info_length = len(worker_info_bytes)
+                        send_length = str(worker_info_length).encode(FORMAT)
+                        send_length += b' ' * (HEADER - len(send_length))
+                        client.send(send_length)
+                        client.send(worker_info_bytes)
+                        
+                        # Now run the client
+                        print(f"{BLUE}[*] Worker with ID: {worker_id} is now running (runClient()){RESET}")
+                        socket_client.run_client()
+                        socket_client.brute_force_discovery('99623b41f9887ea3621bd7156657225e', 0, 1000000000)
+                        print(f"{GREEN}[*] Worker with ID: {worker_id} has completed its task.{RESET}")
                     
             except socket.timeout:
                 continue
+            except (ConnectionResetError, ConnectionAbortedError):
+                # Server disconnected us gracefully or forcibly
+                print(f"\n{YELLOW}┌{'─'*78}┐{RESET}")
+                print(f"{YELLOW}│{RESET} {BLUE}ℹ DISCONNECTED BY SERVER{RESET}                                               {YELLOW}│{RESET}")
+                print(f"{YELLOW}├{'─'*78}┤{RESET}")
+                print(f"{YELLOW}│{RESET}   The server has closed the connection.                                  {YELLOW}│{RESET}")
+                print(f"{YELLOW}│{RESET}   This may be due to a server-side disconnect command.                   {YELLOW}│{RESET}")
+                print(f"{YELLOW}└{'─'*78}┘{RESET}")
+                print("\nPress Enter to exit...")
+                input()
+                break
             except OSError as e:
-                print(f"\n{RED}┌{'─'*78}┐{RESET}")
-                print(f"{RED}│{RESET} {YELLOW} CONNECTION LOST{RESET}                                                      {RED}│{RESET}")
-                print(f"{RED}├{'─'*78}┤{RESET}")
-                print(f"{RED}│{RESET}   Connection to server was forcibly closed.                              {RED}│{RESET}")
-                print(f"{RED}│{RESET}   Error: {str(e):<63}{RED}│{RESET}")
-                print(f"{RED}└{'─'*78}┘{RESET}")
+                # Check for specific Windows socket errors
+                if hasattr(e, 'winerror') and e.winerror in (10054, 10053):
+                    # 10054 = Connection reset by peer
+                    # 10053 = Connection aborted
+                    print(f"\n{YELLOW}┌{'─'*78}┐{RESET}")
+                    print(f"{YELLOW}│{RESET} {BLUE}ℹ DISCONNECTED BY SERVER{RESET}                                               {YELLOW}│{RESET}")
+                    print(f"{YELLOW}├{'─'*78}┤{RESET}")
+                    print(f"{YELLOW}│{RESET}   The server has closed the connection.                                  {YELLOW}│{RESET}")
+                    print(f"{YELLOW}│{RESET}   This may be due to a server-side disconnect command.                   {YELLOW}│{RESET}")
+                    print(f"{YELLOW}└{'─'*78}┘{RESET}")
+                else:
+                    print(f"\n{RED}┌{'─'*78}┐{RESET}")
+                    print(f"{RED}│{RESET} {YELLOW}⚠ CONNECTION ERROR{RESET}                                                     {RED}│{RESET}")
+                    print(f"{RED}├{'─'*78}┤{RESET}")
+                    print(f"{RED}│{RESET}   An unexpected network error occurred.                                  {RED}│{RESET}")
+                    error_str = str(e)[:60]
+                    padding = 63 - len(error_str)
+                    print(f"{RED}│{RESET}   Error: {error_str}{' '*padding}{RED}│{RESET}")
+                    print(f"{RED}└{'─'*78}┘{RESET}")
                 print("\nPress Enter to exit...")
                 input()
                 break

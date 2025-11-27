@@ -13,6 +13,10 @@ from task_dispatcher import main as dispatcher_main # Import dispatcher logic
 # CLIENT_CONNECTIONS is imported from task_broker.py 
 CRACKED_PATTERNS = {} # {task_id: pattern}
 
+# External references (can be set by parent server)
+_external_clients = None
+_external_clients_lock = None
+
 # --- Core Socket Communication Handlers ---
 
 def handle_client_message(conn, addr, broker_ref):
@@ -123,23 +127,41 @@ def socket_listener(broker_ref):
             pass
 
 
-def main():
-    """Starts the three main components: Listener, Broker, and Dispatcher UI."""
+def main(external_clients=None, external_lock=None, skip_socket_listener=False):
+    """Starts the three main components: Listener, Broker, and Dispatcher UI.
+    
+    Args:
+        external_clients: Optional dict of clients from parent server
+        external_lock: Optional threading.Lock from parent server
+        skip_socket_listener: If True, don't start socket listener (use parent's clients)
+    """
+    global _external_clients, _external_clients_lock
+    
+    _external_clients = external_clients
+    _external_clients_lock = external_lock
+    
+    # Use external clients if provided, otherwise use internal CLIENT_CONNECTIONS
+    clients_to_use = external_clients if external_clients is not None else CLIENT_CONNECTIONS
+    
     print("=====================================================")
     print("STARTING DISTRIBUTED HASH DISCOVERY SERVER")
     print(f"Redis Broker: {CELERY_BROKER_URL}")
-    print(f"Socket Server: {SERVER_HOST}:{SERVER_PORT}")
+    if not skip_socket_listener:
+        print(f"Socket Server: {SERVER_HOST}:{SERVER_PORT}")
+    else:
+        print(f"Using external client pool ({len(clients_to_use)} clients)")
     print("=====================================================")
 
     # 1. Start the TaskBroker thread (The Celery <-> Socket Bridge)
-    broker = TaskBroker(CLIENT_CONNECTIONS)
+    broker = TaskBroker(clients_to_use, external_lock)
     broker.daemon = True
     broker.start()
     
-    # 2. Start the Socket Listener thread
-    listener_thread = threading.Thread(target=socket_listener, args=(broker,))
-    listener_thread.daemon = True
-    listener_thread.start()
+    # 2. Start the Socket Listener thread (only if not using external clients)
+    if not skip_socket_listener:
+        listener_thread = threading.Thread(target=socket_listener, args=(broker,))
+        listener_thread.daemon = True
+        listener_thread.start()
 
     # 3. Start the Dispatcher UI (Main thread, blocking for user input)
     try:
