@@ -1,4 +1,4 @@
-from flask import Flask, Response, request, redirect, url_for, session
+from flask import Flask, Response, request, redirect, url_for, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -62,13 +62,28 @@ def signin():
     color = "red"
 
     if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
+        # Handle both form data and JSON
+        if request.is_json:
+            data = request.get_json()
+            email = data.get("email") or data.get("username")
+            password = data.get("password")
+        else:
+            email = request.form.get("email") or request.form.get("username")
+            password = request.form.get("password")
 
         if email in users and check_password_hash(users[email], password):
+            # For API calls, return JSON with 200
+            if request.is_json or request.form.get("api") == "true":
+                return jsonify({"success": True, "message": "Login successful", "username": email}), 200
+            
+            # For browser form submissions, set session and redirect
             session['user'] = email
             return redirect(url_for('home'))
         else:
+            # For API calls, return JSON with 401
+            if request.is_json or request.form.get("api") == "true":
+                return jsonify({"success": False, "message": "Invalid credentials"}), 401
+            
             message = "Invalid credentials, please try again."
 
     return f"""
@@ -94,5 +109,13 @@ def logout():
     session.pop('user', None)
     return redirect(url_for('signin'))
 
+# API endpoint to check if user exists (for testing setup)
+@app.route('/api/users', methods=['GET'])
+def list_users():
+    return jsonify({"users": list(users.keys()), "count": len(users)})
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Create a test user for demonstration
+    users["testuser@gmail.com"] = generate_password_hash("abc")
+    print("Test user created: testuser@gmail.com with password: abc")
+    app.run(debug=True, host='0.0.0.0', port=5000)
