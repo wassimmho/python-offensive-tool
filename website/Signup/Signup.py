@@ -116,6 +116,6 @@ def list_users():
 
 if __name__ == "__main__":
     # Create a test user for demonstration
-    users["testuser@gmail.com"] = generate_password_hash("abc")
-    print("Test user created: testuser@gmail.com with password: abc")
+    users["testuser@gmail.com"] = generate_password_hash("aaaaab")
+    print("Test user created: testuser@gmail.com with password: aaaaab")
     app.run(debug=True, host='0.0.0.0', port=5000)
