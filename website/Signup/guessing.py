@@ -41,9 +41,9 @@ except ImportError:
     # fallback for direct script usage
     CELERY_BROKER_URL = 'redis://localhost:6379/0'
     CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
-    CHARSET = "abc"
-    MIN_LEN = 1
-    MAX_LEN = 4
+    CHARSET = "abcdefghijklmnopqrstuwvxyz0123456789"
+    MIN_LEN = 6
+    MAX_LEN = 6
     USERNAME = "testuser@gmail.com"
     TARGET_URL = "http://127.0.0.1:5000/signin"
     PASSWORD_FIELD = "password"
