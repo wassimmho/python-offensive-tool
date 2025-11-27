@@ -548,36 +548,43 @@ class Game:
                 self.screen.blit(self.bg_surface, (x2, y))
         
         # Title
-        ui.text(self.screen, self.big_font, "HOSTING GAME", (100, 255, 100), (S.WIDTH//2, 60), center=True, shadow=True, glow=True)
+        ui.text(self.screen, self.big_font, "HOSTING GAME", (100, 255, 100), (S.WIDTH//2, 50), center=True, shadow=True, glow=True)
         
-        # Connection info panel
-        info_panel = pg.Rect(S.WIDTH//2 - 280, 100, 560, 100)
+        # Connection info panel - LAN
+        info_panel = pg.Rect(S.WIDTH//2 - 280, 90, 560, 70)
         ui.draw_panel(self.screen, info_panel, bg=(30, 50, 40), border=(100, 200, 100), glow=True)
         
         local_ip = get_local_ip()
-        ui.text(self.screen, self.mid_font, f"Server IP: {local_ip}", (150, 255, 150), (S.WIDTH//2, 130), center=True, glow=True)
-        ui.text(self.screen, self.font, "Share this IP with friends to let them join!", S.TIP_COLOR, (S.WIDTH//2, 165), center=True)
+        ui.text(self.screen, self.font, "LAN (Same Network):", (100, 200, 100), (S.WIDTH//2, 105), center=True)
+        ui.text(self.screen, self.mid_font, f"{local_ip}:{S.DEFAULT_PORT}", (150, 255, 150), (S.WIDTH//2, 130), center=True, glow=True)
+        
+        # Connection info panel - Public
+        public_panel = pg.Rect(S.WIDTH//2 - 280, 165, 560, 70)
+        ui.draw_panel(self.screen, public_panel, bg=(50, 40, 30), border=(255, 180, 100), glow=False)
+        
+        ui.text(self.screen, self.font, "PUBLIC (Internet - via playit.gg/ngrok):", (255, 180, 100), (S.WIDTH//2, 180), center=True)
+        ui.text(self.screen, self.font, "Use your tunnel address (e.g. xyz.playit.gg:12345)", (200, 160, 100), (S.WIDTH//2, 205), center=True)
         
         # Players panel
-        players_panel = pg.Rect(S.WIDTH//2 - 200, 220, 400, 180)
+        players_panel = pg.Rect(S.WIDTH//2 - 200, 245, 400, 160)
         ui.draw_panel(self.screen, players_panel, bg=(25, 30, 45), border=(80, 120, 180), glow=False)
         
-        ui.text(self.screen, self.mid_font, "PLAYERS IN LOBBY", (200, 220, 255), (S.WIDTH//2, 240), center=True)
+        ui.text(self.screen, self.mid_font, "PLAYERS IN LOBBY", (200, 220, 255), (S.WIDTH//2, 265), center=True)
         
         player_list = self.multiplayer.get_player_list()
         player_count = len(player_list)
         
-        y_offset = 280
-        for i, name in enumerate(player_list[:6]):  # Show max 6 players
+        y_offset = 300
+        for i, name in enumerate(player_list[:5]):  # Show max 5 players
             color = (100, 255, 100) if i == 0 else (200, 200, 200)
             prefix = "(You) " if i == 0 else ""
-            ui.text(self.screen, self.font, f"{prefix}{name}", color, (S.WIDTH//2, y_offset + i * 25), center=True)
+            ui.text(self.screen, self.font, f"{prefix}{name}", color, (S.WIDTH//2, y_offset + i * 22), center=True)
         
-        ui.text(self.screen, self.font, f"Players: {player_count}", (180, 180, 200), (S.WIDTH//2, 410), center=True)
+        ui.text(self.screen, self.font, f"Players: {player_count}", (180, 180, 200), (S.WIDTH//2, 420), center=True)
         
         # Error message
         if self.mp_error_timer > 0 and self.mp_error_message:
-            ui.text(self.screen, self.font, self.mp_error_message, (255, 100, 100), (S.WIDTH//2, 440), center=True)
+            ui.text(self.screen, self.font, self.mp_error_message, (255, 100, 100), (S.WIDTH//2, 445), center=True)
         
         # Start button hint
         pulse = abs(math.sin(self.time * 3))

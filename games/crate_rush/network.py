@@ -103,9 +103,10 @@ class GameServer:
     One lobby where all players join.
     """
     
-    def __init__(self, host: str = "", port: int = DEFAULT_PORT):
-        self.host = host or self.get_local_ip()
+    def __init__(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT):
+        self.host = host  # Bind to all interfaces by default
         self.port = port
+        self.display_ip = self.get_local_ip()  # For display purposes
         self.socket: Optional[socket.socket] = None
         self.clients: Dict[str, socket.socket] = {}  # player_id -> socket
         self.player_states: Dict[str, PlayerState] = {}  # player_id -> state
