@@ -70,7 +70,7 @@ def brute_force_discovery(hash_value, start_range, end_range, length=6):
             temp_i //= len(CHARACTERS)
             
         # Simulate the check
-        computed_hash = hashlib.sha256(pattern.encode('utf-8')).hexdigest()
+        computed_hash = hashlib.md5(pattern.encode('utf-8')).hexdigest()
         
         if computed_hash == hash_value:
             return pattern
