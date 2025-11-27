@@ -435,6 +435,15 @@ def start():
         server.close()
 
 
+def broadcating_BrutForcing():
+    with clients_lock:
+        try:
+            for addr, info in clients.items():
+                 send_message(info["conn"], "BROADCASTING")
+
+        except Exception as e:
+            print(f"{RED}Error broadcasting brute force message: {e}{RESET}")
+
 def interactive_terminal():
     try:
         while True:
@@ -486,9 +495,8 @@ def interactive_terminal():
                     send_thread.start()
                 else:
                     print(f"{YELLOW}No file selected.{RESET}")
-
-            else:
-                print(f"{YELLOW}Unknown command. Type 'help' for a list of commands.{RESET}")
+            elif command == "broadcast":
+                broadcating_BrutForcing()
     except KeyboardInterrupt:
         print("\nDisconnecting from server...")
         server.close()
