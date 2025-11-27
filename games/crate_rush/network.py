@@ -207,12 +207,15 @@ class GameServer:
     def _receive_from_client(self, player_id: str, client_socket: socket.socket):
         """Receive messages from a specific client"""
         buffer = ""
+        print(f"[SERVER] Starting receive loop for {player_id}")
         while self.running:
             try:
                 data = client_socket.recv(BUFFER_SIZE).decode('utf-8')
                 if not data:
+                    print(f"[SERVER] {player_id}: Empty data received, client closed connection")
                     break
                 
+                print(f"[SERVER] {player_id} received: {data[:100]}...")
                 buffer += data
                 while '\n' in buffer:
                     line, buffer = buffer.split('\n', 1)
@@ -220,17 +223,22 @@ class GameServer:
                         try:
                             msg = Message.from_json(line)
                             msg.sender_id = player_id
+                            print(f"[SERVER] {player_id} message type: {msg.type}")
                             self._handle_message(msg)
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError as e:
+                            print(f"[SERVER] {player_id} JSON error: {e}")
                             continue
                             
             except socket.timeout:
                 continue
             except Exception as e:
                 print(f"[SERVER] Receive error from {player_id}: {e}")
+                import traceback
+                traceback.print_exc()
                 break
         
         # Client disconnected
+        print(f"[SERVER] {player_id} receive loop ended")
         self._handle_disconnect(player_id)
     
     def _handle_message(self, msg: Message):
@@ -363,19 +371,24 @@ class GameClient:
     def connect(self, host: str, port: int = DEFAULT_PORT, name: str = "Player") -> bool:
         """Connect to a game server"""
         try:
+            print(f"[CLIENT] Connecting to {host}:{port}...")
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(TIMEOUT)
+            self.socket.settimeout(10)  # Longer timeout for initial connection
             self.socket.connect((host, port))
+            print(f"[CLIENT] Socket connected, waiting for welcome message...")
             self.player_name = name
             self.running = True
             
             # Wait for welcome message with player ID
             data = self.socket.recv(BUFFER_SIZE).decode('utf-8')
+            print(f"[CLIENT] Received: {data[:100] if data else 'empty'}")
             if data:
-                msg = Message.from_json(data.strip())
+                # Handle message with newline
+                msg = Message.from_json(data.strip().split('\n')[0])
                 if msg.type == Message.CONNECT:
                     self.player_id = msg.data.get("player_id", "")
                     self.connected = True
+                    self.socket.settimeout(TIMEOUT)  # Reset to normal timeout
                     
                     # Start receive thread
                     recv_thread = threading.Thread(target=self._receive_loop, daemon=True)
@@ -387,9 +400,15 @@ class GameClient:
                     print(f"[CLIENT] Connected as {self.player_id} ({name})")
                     return True
             
+            print("[CLIENT] No welcome message received")
+            return False
+        except socket.timeout:
+            print(f"[CLIENT] Connection timed out to {host}:{port}")
             return False
         except Exception as e:
             print(f"[CLIENT] Connection failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def send_lobby_name(self, name: str):
