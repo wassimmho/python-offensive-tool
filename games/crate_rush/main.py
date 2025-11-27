@@ -683,9 +683,9 @@ class Game:
         
         # Instructions
         if self.connection_mode == S.CONN_PUBLIC:
-            ui.text(self.screen, self.font, "TAB: Switch mode  |  Click: Select field  |  Enter: Connect  |  Esc: Back", S.TIP_COLOR, (S.WIDTH//2, 380), center=True)
+            ui.text(self.screen, self.font, "Ctrl+V: Paste  |  TAB: Switch field/mode  |  Enter: Connect  |  Esc: Back", S.TIP_COLOR, (S.WIDTH//2, 380), center=True)
         else:
-            ui.text(self.screen, self.font, "TAB: Switch mode  |  Click to edit  |  Enter: Connect  |  Esc: Back", S.TIP_COLOR, (S.WIDTH//2, 380), center=True)
+            ui.text(self.screen, self.font, "Ctrl+V: Paste  |  TAB: Switch mode  |  Enter: Connect  |  Esc: Back", S.TIP_COLOR, (S.WIDTH//2, 380), center=True)
         
         # Mode description
         if self.connection_mode == S.CONN_LAN:
