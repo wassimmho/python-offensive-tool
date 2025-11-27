@@ -54,11 +54,18 @@ class Game:
         self.input_mode = ""  # 'name' or 'ip'
         self.mp_error_message = ""
         self.mp_error_timer = 0
+        self.selected_map = 0  # Index of selected map for host
+        self.current_map_id = "classic"  # Current map being played
         
         self.reset_run(full=True)
         self.load_backgrounds()
 
-    def reset_run(self, full=False):
+    def reset_run(self, full=False, map_id=None):
+        # Load map if specified
+        if map_id:
+            self.current_map_id = map_id
+            self.level.load_map(map_id)
+        
         self.all = pg.sprite.Group()
         self.platforms = self.level.platforms
         self.enemies = pg.sprite.Group()
@@ -210,8 +217,9 @@ class Game:
         
         # Check for game start if in lobby (client waiting for host)
         if self.state == S.STATE_MULTIPLAYER_LOBBY:
-            if self.multiplayer.check_game_started():
-                self.reset_run(full=True)
+            started, map_id = self.multiplayer.check_game_started()
+            if started:
+                self.reset_run(full=True, map_id=map_id)
                 self.state = S.STATE_MULTIPLAYER_RUNNING
                 return
         
@@ -536,7 +544,9 @@ class Game:
         pg.display.flip()
     
     def draw_multiplayer_host(self):
-        """Draw hosting lobby screen"""
+        """Draw hosting lobby screen with map selection"""
+        from .level import Level
+        
         ui.gradient_bg(self.screen)
         if self.bg_surface:
             offset = int(self.time * 20) % self.bg_width
@@ -548,49 +558,66 @@ class Game:
                 self.screen.blit(self.bg_surface, (x2, y))
         
         # Title
-        ui.text(self.screen, self.big_font, "HOSTING GAME", (100, 255, 100), (S.WIDTH//2, 50), center=True, shadow=True, glow=True)
+        ui.text(self.screen, self.big_font, "HOSTING GAME", (100, 255, 100), (S.WIDTH//2, 40), center=True, shadow=True, glow=True)
         
-        # Connection info panel - LAN
-        info_panel = pg.Rect(S.WIDTH//2 - 280, 90, 560, 70)
-        ui.draw_panel(self.screen, info_panel, bg=(30, 50, 40), border=(100, 200, 100), glow=True)
+        # Left side - Connection info
+        info_panel = pg.Rect(30, 80, 320, 120)
+        ui.draw_panel(self.screen, info_panel, bg=(30, 50, 40), border=(100, 200, 100), glow=False)
         
         local_ip = get_local_ip()
-        ui.text(self.screen, self.font, "LAN (Same Network):", (100, 200, 100), (S.WIDTH//2, 105), center=True)
-        ui.text(self.screen, self.mid_font, f"{local_ip}:{S.DEFAULT_PORT}", (150, 255, 150), (S.WIDTH//2, 130), center=True, glow=True)
+        ui.text(self.screen, self.font, "LAN:", (100, 200, 100), (190, 95), center=True)
+        ui.text(self.screen, self.font, f"{local_ip}:{S.DEFAULT_PORT}", (150, 255, 150), (190, 120), center=True)
+        ui.text(self.screen, self.font, "PUBLIC: Use tunnel address", (255, 180, 100), (190, 150), center=True)
+        ui.text(self.screen, self.font, "(playit.gg/ngrok)", (200, 150, 80), (190, 175), center=True)
         
-        # Connection info panel - Public
-        public_panel = pg.Rect(S.WIDTH//2 - 280, 165, 560, 70)
-        ui.draw_panel(self.screen, public_panel, bg=(50, 40, 30), border=(255, 180, 100), glow=False)
+        # Right side - Map selection
+        map_panel = pg.Rect(610, 80, 320, 120)
+        ui.draw_panel(self.screen, map_panel, bg=(40, 35, 50), border=(180, 120, 200), glow=False)
         
-        ui.text(self.screen, self.font, "PUBLIC (Internet - via playit.gg/ngrok):", (255, 180, 100), (S.WIDTH//2, 180), center=True)
-        ui.text(self.screen, self.font, "Use your tunnel address (e.g. xyz.playit.gg:12345)", (200, 160, 100), (S.WIDTH//2, 205), center=True)
+        ui.text(self.screen, self.font, "MAP (Left/Right to change)", (180, 140, 220), (770, 95), center=True)
         
-        # Players panel
-        players_panel = pg.Rect(S.WIDTH//2 - 200, 245, 400, 160)
+        maps = Level.get_map_list()
+        current_map = maps[self.selected_map]
+        map_id, map_name, map_desc = current_map
+        
+        # Map name with arrows
+        arrow_color = (180, 140, 220)
+        ui.text(self.screen, self.font, "<", arrow_color, (660, 125), center=True)
+        ui.text(self.screen, self.mid_font, map_name, (220, 180, 255), (770, 125), center=True, glow=True)
+        ui.text(self.screen, self.font, ">", arrow_color, (880, 125), center=True)
+        
+        # Map description
+        ui.text(self.screen, self.font, map_desc, (150, 150, 170), (770, 155), center=True)
+        
+        # Map counter
+        ui.text(self.screen, self.font, f"{self.selected_map + 1}/{len(maps)}", (120, 120, 140), (770, 180), center=True)
+        
+        # Players panel (center)
+        players_panel = pg.Rect(S.WIDTH//2 - 200, 215, 400, 150)
         ui.draw_panel(self.screen, players_panel, bg=(25, 30, 45), border=(80, 120, 180), glow=False)
         
-        ui.text(self.screen, self.mid_font, "PLAYERS IN LOBBY", (200, 220, 255), (S.WIDTH//2, 265), center=True)
+        ui.text(self.screen, self.mid_font, "PLAYERS IN LOBBY", (200, 220, 255), (S.WIDTH//2, 235), center=True)
         
         player_list = self.multiplayer.get_player_list()
         player_count = len(player_list)
         
-        y_offset = 300
-        for i, name in enumerate(player_list[:5]):  # Show max 5 players
+        y_offset = 270
+        for i, name in enumerate(player_list[:4]):  # Show max 4 players
             color = (100, 255, 100) if i == 0 else (200, 200, 200)
             prefix = "(You) " if i == 0 else ""
             ui.text(self.screen, self.font, f"{prefix}{name}", color, (S.WIDTH//2, y_offset + i * 22), center=True)
         
-        ui.text(self.screen, self.font, f"Players: {player_count}", (180, 180, 200), (S.WIDTH//2, 420), center=True)
+        ui.text(self.screen, self.font, f"Players: {player_count}", (180, 180, 200), (S.WIDTH//2, 380), center=True)
         
         # Error message
         if self.mp_error_timer > 0 and self.mp_error_message:
-            ui.text(self.screen, self.font, self.mp_error_message, (255, 100, 100), (S.WIDTH//2, 445), center=True)
+            ui.text(self.screen, self.font, self.mp_error_message, (255, 100, 100), (S.WIDTH//2, 405), center=True)
         
         # Start button hint
         pulse = abs(math.sin(self.time * 3))
         start_color = (int(100 + 155 * pulse), 255, int(100 + 155 * pulse))
         ui.text(self.screen, self.mid_font, "Press SPACE to Start Game", start_color, (S.WIDTH//2, S.HEIGHT - 80), center=True, glow=True)
-        ui.text(self.screen, self.font, "N to change name  |  Esc to cancel", S.TIP_COLOR, (S.WIDTH//2, S.HEIGHT - 40), center=True)
+        ui.text(self.screen, self.font, "Left/Right: Map  |  N: Name  |  Esc: Cancel", S.TIP_COLOR, (S.WIDTH//2, S.HEIGHT - 40), center=True)
         
         # Draw name input overlay if active
         if self.input_mode == 'name':
@@ -775,11 +802,31 @@ class Game:
     
     def _update_multiplayer_game(self, dt):
         """Update multiplayer game state"""
+        # Track bullet count before update to detect new bullets
+        bullet_count_before = len(self.bullets)
+        
         # Update player
         self.player.update(dt, self.platforms, self.bullets)
         
+        # Check if player spawned new bullets and send to network
+        if len(self.bullets) > bullet_count_before:
+            # New bullets were added - send them to other players
+            for bullet in list(self.bullets)[-(len(self.bullets) - bullet_count_before):]:
+                # Only send bullets we created locally (not remote bullets)
+                if not getattr(bullet, 'is_remote', False):
+                    self.multiplayer.send_bullet_spawn(
+                        bullet.pos.x, bullet.pos.y,
+                        bullet.vel.x, bullet.vel.y,
+                        getattr(bullet, 'color', (255, 220, 80)),
+                        getattr(bullet, 'damage', 1),
+                        getattr(bullet, 'radius', 4)
+                    )
+        
         # Update multiplayer state
         self.multiplayer.update(dt, self.player, self.player.weapon)
+        
+        # Spawn remote bullets
+        self._spawn_remote_bullets()
         
         # Update bullets
         for b in list(self.bullets):
@@ -835,6 +882,27 @@ class Game:
         
         # Check if we got hit by remote bullets
         self.multiplayer.check_incoming_hits(self.player, self.particles, self)
+    
+    def _spawn_remote_bullets(self):
+        """Spawn bullets from remote players"""
+        from .weapons import Bullet
+        
+        for bullet_data in self.multiplayer.get_pending_bullets():
+            # Don't spawn our own bullets (we already have them)
+            if self.multiplayer.client and bullet_data.get("owner_id") == self.multiplayer.client.player_id:
+                continue
+            
+            pos = (bullet_data["pos_x"], bullet_data["pos_y"])
+            vel = (bullet_data["vel_x"], bullet_data["vel_y"])
+            color = tuple(bullet_data.get("color", (255, 220, 80)))
+            damage = bullet_data.get("damage", 1)
+            radius = bullet_data.get("radius", 4)
+            
+            # Create the bullet
+            bullet = Bullet(pos, vel, radius=radius, color=color, damage=damage)
+            # Mark it as remote so we don't send it back
+            bullet.is_remote = True
+            self.bullets.add(bullet)
     
     def draw_multiplayer_game(self):
         """Draw multiplayer game state"""
@@ -1207,11 +1275,19 @@ class Game:
                         elif event.key == pg.K_ESCAPE:
                             self.state = S.STATE_MENU
                     elif self.state == S.STATE_MULTIPLAYER_HOST:
+                        from .level import Level, MAP_LIST
                         if event.key == pg.K_SPACE:
-                            # Start the game and notify all clients
-                            self.multiplayer.start_game()
-                            self.reset_run(full=True)
+                            # Start the game with selected map and notify all clients
+                            map_id = MAP_LIST[self.selected_map]
+                            self.multiplayer.start_game(map_id)
+                            self.reset_run(full=True, map_id=map_id)
                             self.state = S.STATE_MULTIPLAYER_RUNNING
+                        elif event.key in (pg.K_LEFT, pg.K_a):
+                            # Previous map
+                            self.selected_map = (self.selected_map - 1) % len(MAP_LIST)
+                        elif event.key in (pg.K_RIGHT, pg.K_d):
+                            # Next map
+                            self.selected_map = (self.selected_map + 1) % len(MAP_LIST)
                         elif event.key == pg.K_n:
                             # Change name
                             self.input_mode = 'name'

@@ -223,6 +223,7 @@ class MultiplayerManager:
         self.update_rate = 1/30  # 30 updates per second
         self.update_timer = 0
         self.pending_hits = []  # Hits received from network
+        self.pending_bullets = []  # Bullets spawned by remote players
         self.local_health = 100  # Local player health
         
     def host_game(self, name: str = "Player", port: int = 5555) -> tuple:
@@ -262,22 +263,23 @@ class MultiplayerManager:
         else:
             return False, "Failed to connect to server"
     
-    def start_game(self):
-        """Host starts the game - notify all clients"""
+    def start_game(self, map_id: str = "classic"):
+        """Host starts the game - notify all clients with selected map"""
         if not self.is_host or not self.client:
             return
-        msg = Message(Message.GAME_START, {"started": True})
+        msg = Message(Message.GAME_START, {"started": True, "map_id": map_id})
         self.client.send(msg)
     
-    def check_game_started(self) -> bool:
-        """Check if we received a game start message"""
+    def check_game_started(self) -> tuple:
+        """Check if we received a game start message. Returns (started, map_id)"""
         if not self.client:
-            return False
+            return False, None
         messages = self.client.get_messages()
         for msg in messages:
             if msg.type == Message.GAME_START:
-                return True
-        return False
+                map_id = msg.data.get("map_id", "classic")
+                return True, map_id
+        return False, None
     
     def disconnect(self):
         """Disconnect from game"""
@@ -361,6 +363,33 @@ class MultiplayerManager:
         elif msg.type == Message.PLAYER_KILL:
             # Player was killed - they'll respawn
             pass
+        elif msg.type == Message.BULLET_SPAWN:
+            # Remote player spawned a bullet
+            self.pending_bullets.append(msg.data)
+    
+    def send_bullet_spawn(self, pos_x: float, pos_y: float, vel_x: float, vel_y: float, 
+                          color: tuple = None, damage: int = 1, radius: int = 4):
+        """Send bullet spawn to server for broadcasting"""
+        if not self.client:
+            return
+        bullet_data = {
+            "owner_id": self.client.player_id,
+            "pos_x": pos_x,
+            "pos_y": pos_y,
+            "vel_x": vel_x,
+            "vel_y": vel_y,
+            "color": color or (255, 220, 80),
+            "damage": damage,
+            "radius": radius
+        }
+        msg = Message(Message.BULLET_SPAWN, bullet_data)
+        self.client.send(msg)
+    
+    def get_pending_bullets(self) -> list:
+        """Get and clear pending bullets from remote players"""
+        bullets = self.pending_bullets.copy()
+        self.pending_bullets.clear()
+        return bullets
     
     def send_player_hit(self, target_player_id: str, damage: int):
         """Send a hit notification to the server"""
