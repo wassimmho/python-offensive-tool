@@ -9,18 +9,49 @@ AK_FRAMES = []
 AK_FRAMES_FLIPPED = []  # Pre-flipped frames for left-facing
 AK_FRAMES_LOADED = False
 
+# SMG animation frames (loaded lazily)
+SMG_FRAMES = []
+SMG_FRAMES_FLIPPED = []
+SMG_FRAMES_LOADED = False
+
+# Rocket launcher animation frames (loaded lazily)
+ROCKET_FRAMES = []
+ROCKET_FRAMES_FLIPPED = []
+ROCKET_FRAMES_LOADED = False
+
+# Shotgun animation frames (loaded lazily)
+SHOTGUN_FRAMES = []
+SHOTGUN_FRAMES_FLIPPED = []
+SHOTGUN_FRAMES_LOADED = False
+
+# Pistol animation frames (loaded lazily)
+PISTOL_FRAMES = []
+PISTOL_FRAMES_FLIPPED = []
+PISTOL_FRAMES_LOADED = False
+
+# Character animation frames
+CHAR_IDLE_FRAMES = []
+CHAR_IDLE_FRAMES_FLIPPED = []
+CHAR_WALK_FRAMES = []
+CHAR_WALK_FRAMES_FLIPPED = []
+CHAR_JUMP_START_FRAMES = []
+CHAR_JUMP_START_FRAMES_FLIPPED = []
+CHAR_JUMP_END_FRAMES = []
+CHAR_JUMP_END_FRAMES_FLIPPED = []
+CHAR_FRAMES_LOADED = False
+
 def load_ak_frames():
     """Load AK-47 animation frames - called after pygame is initialized"""
     global AK_FRAMES, AK_FRAMES_FLIPPED, AK_FRAMES_LOADED
     if AK_FRAMES_LOADED:
         return
     try:
-        ak_folder = Path(__file__).parent / 'AK_Animation'
+        ak_folder = Path(__file__).parent / 'Weapons' / 'AK_Animation'
         ak_files = sorted(ak_folder.glob('*.png'))
         for ak_file in ak_files:
             img = pg.image.load(str(ak_file)).convert_alpha()
-            # Scale to a good size for the game (adjust as needed based on your images)
-            scale_factor = 0.15  # Smaller scale for better fit
+            # Scale to a good size for the game - bigger weapon
+            scale_factor = 0.24  # Bigger scale for visibility
             scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
             AK_FRAMES.append(scaled)
             # Pre-flip for left-facing direction
@@ -31,6 +62,163 @@ def load_ak_frames():
     except Exception as e:
         print(f"Could not load AK-47 sprites: {e}")
         AK_FRAMES_LOADED = True
+
+def load_smg_frames():
+    """Load SMG animation frames - called after pygame is initialized"""
+    global SMG_FRAMES, SMG_FRAMES_FLIPPED, SMG_FRAMES_LOADED
+    if SMG_FRAMES_LOADED:
+        return
+    try:
+        smg_folder = Path(__file__).parent / 'Weapons' / 'SMG'
+        smg_files = sorted(smg_folder.glob('*.png'))
+        for smg_file in smg_files:
+            img = pg.image.load(str(smg_file)).convert_alpha()
+            # Scale to a good size for the game - bigger weapon
+            scale_factor = 1.5  # Much bigger for visibility
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            SMG_FRAMES.append(scaled)
+            # Pre-flip for left-facing direction
+            SMG_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        if SMG_FRAMES:
+            print(f"Loaded {len(SMG_FRAMES)} SMG animation frames")
+        SMG_FRAMES_LOADED = True
+    except Exception as e:
+        print(f"Could not load SMG sprites: {e}")
+        SMG_FRAMES_LOADED = True
+
+def load_rocket_frames():
+    """Load Rocket launcher animation frames - called after pygame is initialized"""
+    global ROCKET_FRAMES, ROCKET_FRAMES_FLIPPED, ROCKET_FRAMES_LOADED
+    if ROCKET_FRAMES_LOADED:
+        return
+    try:
+        rocket_folder = Path(__file__).parent / 'Weapons' / 'Rocket'
+        rocket_files = sorted(rocket_folder.glob('*.png'))
+        for rocket_file in rocket_files:
+            img = pg.image.load(str(rocket_file)).convert_alpha()
+            # Scale to a good size for the game - bigger weapon
+            scale_factor = 2.0  # Good size for rocket launcher
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            ROCKET_FRAMES.append(scaled)
+            # Pre-flip for left-facing direction
+            ROCKET_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        if ROCKET_FRAMES:
+            print(f"Loaded {len(ROCKET_FRAMES)} Rocket animation frames")
+        ROCKET_FRAMES_LOADED = True
+    except Exception as e:
+        print(f"Could not load Rocket sprites: {e}")
+        ROCKET_FRAMES_LOADED = True
+
+def load_shotgun_frames():
+    """Load Shotgun animation frames - called after pygame is initialized"""
+    global SHOTGUN_FRAMES, SHOTGUN_FRAMES_FLIPPED, SHOTGUN_FRAMES_LOADED
+    if SHOTGUN_FRAMES_LOADED:
+        return
+    try:
+        shotgun_folder = Path(__file__).parent / 'Weapons' / 'Shotgun'
+        shotgun_files = sorted(shotgun_folder.glob('*.png'))
+        for shotgun_file in shotgun_files:
+            img = pg.image.load(str(shotgun_file)).convert_alpha()
+            # Scale to a good size for the game
+            scale_factor = 2.0  # Good size for shotgun
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            SHOTGUN_FRAMES.append(scaled)
+            # Pre-flip for left-facing direction
+            SHOTGUN_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        if SHOTGUN_FRAMES:
+            print(f"Loaded {len(SHOTGUN_FRAMES)} Shotgun animation frames")
+        SHOTGUN_FRAMES_LOADED = True
+    except Exception as e:
+        print(f"Could not load Shotgun sprites: {e}")
+        SHOTGUN_FRAMES_LOADED = True
+
+def load_pistol_frames():
+    """Load Pistol animation frames - called after pygame is initialized"""
+    global PISTOL_FRAMES, PISTOL_FRAMES_FLIPPED, PISTOL_FRAMES_LOADED
+    if PISTOL_FRAMES_LOADED:
+        return
+    try:
+        pistol_folder = Path(__file__).parent / 'Weapons' / 'Pistol'
+        pistol_files = sorted(pistol_folder.glob('*.png'))
+        for pistol_file in pistol_files:
+            img = pg.image.load(str(pistol_file)).convert_alpha()
+            # Scale to a good size for the game
+            scale_factor = 2.0  # Good size for pistol
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            PISTOL_FRAMES.append(scaled)
+            # Pre-flip for left-facing direction
+            PISTOL_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        if PISTOL_FRAMES:
+            print(f"Loaded {len(PISTOL_FRAMES)} Pistol animation frames")
+        PISTOL_FRAMES_LOADED = True
+    except Exception as e:
+        print(f"Could not load Pistol sprites: {e}")
+        PISTOL_FRAMES_LOADED = True
+
+def load_character_frames():
+    """Load character animation frames - called after pygame is initialized"""
+    global CHAR_IDLE_FRAMES, CHAR_IDLE_FRAMES_FLIPPED
+    global CHAR_WALK_FRAMES, CHAR_WALK_FRAMES_FLIPPED
+    global CHAR_JUMP_START_FRAMES, CHAR_JUMP_START_FRAMES_FLIPPED
+    global CHAR_JUMP_END_FRAMES, CHAR_JUMP_END_FRAMES_FLIPPED
+    global CHAR_FRAMES_LOADED
+    
+    if CHAR_FRAMES_LOADED:
+        return
+    
+    try:
+        char_folder = Path(__file__).parent / 'Char1'
+        target_height = 124  # Target height in pixels to match collision box
+        
+        # Load Idle frames
+        idle_folder = char_folder / 'Idle'
+        idle_files = sorted(idle_folder.glob('idle_*.png'))
+        for f in idle_files:
+            img = pg.image.load(str(f)).convert_alpha()
+            # Scale to target height, maintaining aspect ratio
+            scale_factor = target_height / img.get_height()
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            CHAR_IDLE_FRAMES.append(scaled)
+            CHAR_IDLE_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        print(f"Loaded {len(CHAR_IDLE_FRAMES)} idle frames")
+        
+        # Load Walk frames
+        walk_folder = char_folder / 'walk'
+        walk_files = sorted(walk_folder.glob('walk_*.png'))
+        for f in walk_files:
+            img = pg.image.load(str(f)).convert_alpha()
+            scale_factor = target_height / img.get_height()
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            CHAR_WALK_FRAMES.append(scaled)
+            CHAR_WALK_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        print(f"Loaded {len(CHAR_WALK_FRAMES)} walk frames")
+        
+        # Load Jump Start frames
+        jump_folder = char_folder / 'jump'
+        jump_start_files = sorted(jump_folder.glob('jumpStart_*.png'))
+        for f in jump_start_files:
+            img = pg.image.load(str(f)).convert_alpha()
+            scale_factor = target_height / img.get_height()
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            CHAR_JUMP_START_FRAMES.append(scaled)
+            CHAR_JUMP_START_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        print(f"Loaded {len(CHAR_JUMP_START_FRAMES)} jump start frames")
+        
+        # Load Jump End frames
+        jump_end_files = sorted(jump_folder.glob('jumpEnd_*.png'))
+        for f in jump_end_files:
+            img = pg.image.load(str(f)).convert_alpha()
+            scale_factor = target_height / img.get_height()
+            scaled = pg.transform.smoothscale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+            CHAR_JUMP_END_FRAMES.append(scaled)
+            CHAR_JUMP_END_FRAMES_FLIPPED.append(pg.transform.flip(scaled, True, False))
+        print(f"Loaded {len(CHAR_JUMP_END_FRAMES)} jump end frames")
+        
+        CHAR_FRAMES_LOADED = True
+        
+    except Exception as e:
+        print(f"Could not load character sprites: {e}")
+        CHAR_FRAMES_LOADED = True
 
 class PhysicsSprite(pg.sprite.Sprite):
     def __init__(self):
@@ -70,10 +258,36 @@ class Player(PhysicsSprite):
     def __init__(self, x, y):
         super().__init__()
         load_ak_frames()  # Load weapon sprites if not already loaded
+        load_smg_frames()  # Load SMG sprites
+        load_rocket_frames()  # Load Rocket sprites
+        load_shotgun_frames()  # Load Shotgun sprites
+        load_pistol_frames()  # Load Pistol sprites
+        load_character_frames()  # Load character sprites
         self.pos.update(x, y)
         self.color = (120, 200, 255)
-        self.image = pg.Surface(self.size, pg.SRCALPHA)
-        self.draw_character()
+        
+        # Character animation state
+        self.anim_state = 'idle'  # idle, walk, jump_start, jump_end
+        self.anim_frame = 0
+        self.anim_timer = 0.0
+        self.idle_frame_duration = 0.12  # Time per idle frame
+        self.walk_frame_duration = 0.08  # Time per walk frame
+        self.jump_frame_duration = 0.1   # Time per jump frame
+        
+        # Keep collision box small and consistent - match sprite size
+        self.size = pg.Vector2(20, 40)  # Smaller collision box
+        
+        # Set initial image from character sprites or fallback
+        if CHAR_IDLE_FRAMES:
+            self.image = CHAR_IDLE_FRAMES[0]
+            self.sprite_size = pg.Vector2(self.image.get_width(), self.image.get_height())
+        else:
+            self.sprite_size = self.size.copy()
+            self.image = pg.Surface(self.size, pg.SRCALPHA)
+            self.draw_character_fallback()
+        
+        # Collision rect uses fixed size
+        self.rect = pg.Rect(self.pos.x, self.pos.y, self.size.x, self.size.y)
         self.rect.topleft = self.pos
         self.on_ground = False
         self.facing = 1
@@ -88,9 +302,11 @@ class Player(PhysicsSprite):
         self.firing_anim_duration = 0.18  # Total time to play full firing animation
         self.firing_timer = 0.0
         self.muzzle_flash_timer = 0.0  # For muzzle flash effect
+        self.aim_angle = 0.0  # Angle to mouse in degrees
+        self.was_on_ground = True  # Track previous ground state for jump detection
     
-    def draw_character(self):
-        """Draw a proper character sprite"""
+    def draw_character_fallback(self):
+        """Draw a fallback character sprite if images not loaded"""
         self.image.fill((0, 0, 0, 0))  # Clear with transparency
         w, h = int(self.size.x), int(self.size.y)
         
@@ -121,6 +337,66 @@ class Player(PhysicsSprite):
         arm_height = h // 3
         pg.draw.rect(self.image, (255, 220, 180), (2, arm_y, 4, arm_height), border_radius=2)
         pg.draw.rect(self.image, (255, 220, 180), (w - 6, arm_y, 4, arm_height), border_radius=2)
+    
+    def update_animation(self, dt):
+        """Update character animation based on state"""
+        if not CHAR_FRAMES_LOADED:
+            return
+        
+        # Determine animation state
+        prev_state = self.anim_state
+        
+        if not self.on_ground:
+            if self.vel.y < 0:
+                self.anim_state = 'jump_start'
+            else:
+                self.anim_state = 'jump_end'
+        elif abs(self.vel.x) > 10:
+            self.anim_state = 'walk'
+        else:
+            self.anim_state = 'idle'
+        
+        # Reset frame if state changed
+        if prev_state != self.anim_state:
+            self.anim_frame = 0
+            self.anim_timer = 0.0
+        
+        # Update animation timer
+        self.anim_timer += dt
+        
+        # Get current frames list and frame duration
+        if self.anim_state == 'idle' and CHAR_IDLE_FRAMES:
+            frames = CHAR_IDLE_FRAMES
+            frames_flipped = CHAR_IDLE_FRAMES_FLIPPED
+            frame_duration = self.idle_frame_duration
+        elif self.anim_state == 'walk' and CHAR_WALK_FRAMES:
+            frames = CHAR_WALK_FRAMES
+            frames_flipped = CHAR_WALK_FRAMES_FLIPPED
+            frame_duration = self.walk_frame_duration
+        elif self.anim_state == 'jump_start' and CHAR_JUMP_START_FRAMES:
+            frames = CHAR_JUMP_START_FRAMES
+            frames_flipped = CHAR_JUMP_START_FRAMES_FLIPPED
+            frame_duration = self.jump_frame_duration
+        elif self.anim_state == 'jump_end' and CHAR_JUMP_END_FRAMES:
+            frames = CHAR_JUMP_END_FRAMES
+            frames_flipped = CHAR_JUMP_END_FRAMES_FLIPPED
+            frame_duration = self.jump_frame_duration
+        else:
+            return
+        
+        # Advance frame
+        if self.anim_timer >= frame_duration:
+            self.anim_timer = 0.0
+            self.anim_frame = (self.anim_frame + 1) % len(frames)
+        
+        # Clamp frame index
+        self.anim_frame = min(self.anim_frame, len(frames) - 1)
+        
+        # Set current image based on facing direction
+        if self.facing > 0:
+            self.image = frames[self.anim_frame]
+        else:
+            self.image = frames_flipped[self.anim_frame]
 
     def give_weapon(self, weapon):
         self.weapon = weapon
@@ -146,6 +422,8 @@ class Player(PhysicsSprite):
             self.facing = 1 if dx > 0 else -1
         if (keys[pg.K_SPACE] or keys[pg.K_w] or keys[pg.K_UP]) and self.on_ground:
             self.vel.y = S.JUMP_VELOCITY
+        
+        self.was_on_ground = self.on_ground
         self.on_ground = self.physics_step(dt, platforms)
         
         # Respawn if on bottom platform or falling too far
@@ -157,27 +435,59 @@ class Player(PhysicsSprite):
         if self.invuln > 0:
             self.invuln -= dt
         
+        # Update character animation
+        self.update_animation(dt)
+        
         self.shoot_cooldown = max(0, self.shoot_cooldown - dt)
         
         # Update weapon firing animation
-        if self.is_firing and AK_FRAMES:
-            self.firing_timer += dt
-            self.weapon_anim_timer += dt
+        if self.is_firing and self.weapon and hasattr(self.weapon, 'has_sprite') and self.weapon.has_sprite:
+            # Get the appropriate frames for the current weapon
+            weapon_frames = None
+            if hasattr(self.weapon, 'sprite_type'):
+                if self.weapon.sprite_type == 'smg' and SMG_FRAMES:
+                    weapon_frames = SMG_FRAMES
+                elif self.weapon.sprite_type == 'ak47' and AK_FRAMES:
+                    weapon_frames = AK_FRAMES
+                elif self.weapon.sprite_type == 'rocket' and ROCKET_FRAMES:
+                    weapon_frames = ROCKET_FRAMES
+                elif self.weapon.sprite_type == 'shotgun' and SHOTGUN_FRAMES:
+                    weapon_frames = SHOTGUN_FRAMES
+                elif self.weapon.sprite_type == 'pistol' and PISTOL_FRAMES:
+                    weapon_frames = PISTOL_FRAMES
+            elif AK_FRAMES:
+                weapon_frames = AK_FRAMES
             
-            # Cycle through frames during firing
-            if self.weapon_anim_timer >= self.weapon_frame_duration:
-                self.weapon_anim_timer = 0
-                self.weapon_anim_frame = (self.weapon_anim_frame + 1) % len(AK_FRAMES)
-            
-            # End firing animation after duration
-            if self.firing_timer >= self.firing_anim_duration:
-                self.is_firing = False
-                self.weapon_anim_frame = 0
-                self.firing_timer = 0.0
+            if weapon_frames:
+                self.firing_timer += dt
+                self.weapon_anim_timer += dt
+                
+                # Cycle through frames during firing
+                if self.weapon_anim_timer >= self.weapon_frame_duration:
+                    self.weapon_anim_timer = 0
+                    self.weapon_anim_frame = (self.weapon_anim_frame + 1) % len(weapon_frames)
+                
+                # End firing animation after duration
+                if self.firing_timer >= self.firing_anim_duration:
+                    self.is_firing = False
+                    self.weapon_anim_frame = 0
+                    self.firing_timer = 0.0
         
         # Update muzzle flash
         if self.muzzle_flash_timer > 0:
             self.muzzle_flash_timer -= dt
+        
+        # Update aim angle based on mouse position
+        mouse_pos = pg.Vector2(pg.mouse.get_pos())
+        player_center = pg.Vector2(self.rect.centerx, self.rect.centery)
+        aim_dir = mouse_pos - player_center
+        if aim_dir.length_squared() > 0:
+            self.aim_angle = math.degrees(math.atan2(-aim_dir.y, aim_dir.x))  # Negative y because pygame y is inverted
+            # Update facing based on mouse position
+            if aim_dir.x > 0:
+                self.facing = 1
+            elif aim_dir.x < 0:
+                self.facing = -1
         
         if self.weapon and (keys[pg.K_j] or keys[pg.K_f] or pg.mouse.get_pressed()[0]):
             if self.shoot_cooldown <= 0:
@@ -204,43 +514,82 @@ class Player(PhysicsSprite):
 
     def draw(self, surf, offset=(0, 0)):
         ox, oy = offset
-        # Draw player character with offset
-        surf.blit(self.image, self.rect.move(ox, oy))
         
-        # Draw AK-47 weapon if equipped
-        if self.weapon and hasattr(self.weapon, 'has_sprite') and self.weapon.has_sprite and AK_FRAMES:
-            # Use pre-flipped frames for better performance
-            if self.facing > 0:
-                weapon_img = AK_FRAMES[self.weapon_anim_frame]
-            else:
-                weapon_img = AK_FRAMES_FLIPPED[self.weapon_anim_frame]
+        # Calculate sprite draw position - align feet with bottom of collision box
+        sprite_w = self.image.get_width()
+        sprite_h = self.image.get_height()
+        
+        # Center horizontally, push sprite down so feet touch the ground
+        draw_x = self.rect.centerx - sprite_w // 2 + ox
+        draw_y = self.rect.bottom - sprite_h + 12 + oy  # +12 to push down onto platform
+        
+        # Draw player character
+        surf.blit(self.image, (draw_x, draw_y))
+        
+        # Draw weapon if equipped and has sprite
+        if self.weapon and hasattr(self.weapon, 'has_sprite') and self.weapon.has_sprite:
+            # Determine which weapon frames to use
+            weapon_frames = None
+            if hasattr(self.weapon, 'sprite_type'):
+                if self.weapon.sprite_type == 'smg' and SMG_FRAMES:
+                    weapon_frames = SMG_FRAMES
+                elif self.weapon.sprite_type == 'ak47' and AK_FRAMES:
+                    weapon_frames = AK_FRAMES
+                elif self.weapon.sprite_type == 'rocket' and ROCKET_FRAMES:
+                    weapon_frames = ROCKET_FRAMES
+                elif self.weapon.sprite_type == 'shotgun' and SHOTGUN_FRAMES:
+                    weapon_frames = SHOTGUN_FRAMES
+                elif self.weapon.sprite_type == 'pistol' and PISTOL_FRAMES:
+                    weapon_frames = PISTOL_FRAMES
+            elif AK_FRAMES:  # Fallback for AK-47
+                weapon_frames = AK_FRAMES
             
-            # Position weapon at player's hands
-            weapon_w = weapon_img.get_width()
-            weapon_h = weapon_img.get_height()
-            
-            # Offset to place weapon in hand position
-            if self.facing > 0:
-                # Facing right - weapon extends to the right
-                weapon_x = self.rect.centerx + 2 + ox
-                weapon_y = self.rect.centery - weapon_h // 2 + 4 + oy
-            else:
-                # Facing left - weapon extends to the left
-                weapon_x = self.rect.centerx - weapon_w - 2 + ox
-                weapon_y = self.rect.centery - weapon_h // 2 + 4 + oy
-            
-            surf.blit(weapon_img, (weapon_x, weapon_y))
-            
-            # Draw muzzle flash when firing
-            if self.muzzle_flash_timer > 0:
-                flash_size = random.randint(8, 14)
-                if self.facing > 0:
-                    flash_x = weapon_x + weapon_w + 2
-                else:
-                    flash_x = weapon_x - 4
-                flash_y = weapon_y + weapon_h // 2 - 2
+            if weapon_frames:
+                # Get the base frame (cycle through for animation)
+                frame_idx = self.weapon_anim_frame % len(weapon_frames)
+                base_img = weapon_frames[frame_idx]
                 
-                # Draw layered muzzle flash
-                pg.draw.circle(surf, (255, 255, 200), (flash_x, flash_y), flash_size)
-                pg.draw.circle(surf, (255, 200, 50), (flash_x, flash_y), flash_size - 3)
-                pg.draw.circle(surf, (255, 255, 255), (flash_x, flash_y), flash_size - 6)
+                # Calculate rotation angle
+                if self.facing > 0:
+                    # Facing right - use normal image, rotate by aim angle
+                    rotated_img = pg.transform.rotate(base_img, self.aim_angle)
+                else:
+                    # Facing left - flip vertically (not horizontally) and use negative angle
+                    flipped_img = pg.transform.flip(base_img, False, True)
+                    rotated_img = pg.transform.rotate(flipped_img, self.aim_angle)
+                
+                # Get the rotated image rect, centered on player's hand position
+                weapon_center_x = self.rect.centerx + (12 * self.facing) + ox
+                weapon_center_y = draw_y + sprite_h // 2 + 30  # Positioned lower at player's hands
+                rotated_rect = rotated_img.get_rect(center=(weapon_center_x, weapon_center_y))
+                
+                surf.blit(rotated_img, rotated_rect)
+                
+                # Draw muzzle flash when firing
+                if self.muzzle_flash_timer > 0:
+                    flash_size = random.randint(6, 12) if self.weapon.sprite_type == 'smg' else random.randint(8, 14)
+                    if hasattr(self.weapon, 'sprite_type') and self.weapon.sprite_type == 'rocket':
+                        flash_size = random.randint(12, 18)  # Bigger flash for rocket
+                    
+                    # Calculate muzzle position based on weapon length and aim angle
+                    weapon_length = base_img.get_width() // 2 + 10
+                    angle_rad = math.radians(self.aim_angle)
+                    
+                    # Muzzle flash always follows the aim direction
+                    flash_x = weapon_center_x + int(math.cos(angle_rad) * weapon_length)
+                    flash_y = weapon_center_y - int(math.sin(angle_rad) * weapon_length)
+                    
+                    # Draw layered muzzle flash - different colors for each weapon
+                    if hasattr(self.weapon, 'sprite_type') and self.weapon.sprite_type == 'smg':
+                        pg.draw.circle(surf, (255, 240, 150), (flash_x, flash_y), flash_size)
+                        pg.draw.circle(surf, (255, 180, 50), (flash_x, flash_y), flash_size - 2)
+                        pg.draw.circle(surf, (255, 255, 200), (flash_x, flash_y), flash_size - 4)
+                    elif hasattr(self.weapon, 'sprite_type') and self.weapon.sprite_type == 'rocket':
+                        # Orange/red flash for rocket launcher
+                        pg.draw.circle(surf, (255, 150, 50), (flash_x, flash_y), flash_size)
+                        pg.draw.circle(surf, (255, 100, 30), (flash_x, flash_y), flash_size - 4)
+                        pg.draw.circle(surf, (255, 200, 100), (flash_x, flash_y), flash_size - 8)
+                    else:
+                        pg.draw.circle(surf, (255, 255, 200), (flash_x, flash_y), flash_size)
+                        pg.draw.circle(surf, (255, 200, 50), (flash_x, flash_y), flash_size - 3)
+                        pg.draw.circle(surf, (255, 255, 255), (flash_x, flash_y), flash_size - 6)

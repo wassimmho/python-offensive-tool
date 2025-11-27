@@ -1,324 +1,446 @@
 """
-Crate Rush - Multiplayer Mode
-Online multiplayer version of the game
+Multiplayer module for Crate Rush.
+Handles remote player rendering and multiplayer game logic.
 """
-import math
-import random
-import json
-from pathlib import Path
-import pygame as pg
-from . import settings as S
-from .level import Level
-from .player import Player, load_ak_frames
-from .enemies import Enemy
-from .weapons import WEAPON_POOL
-from .crate import Crate
-from . import ui
-from .particles import Burst
-from .network_client import NetworkClient
 
-class NetworkedPlayer(pg.sprite.Sprite):
-    """Represents another player in the network"""
-    def __init__(self, player_id, name, x, y):
+import random
+import pygame as pg
+from pathlib import Path
+from typing import Dict, Optional
+from . import settings as S
+from .network import PlayerState, GameClient, GameServer, Message, get_local_ip as network_get_local_ip
+from .weapons import WEAPON_POOL
+from .player import (
+    CHAR_IDLE_FRAMES, CHAR_IDLE_FRAMES_FLIPPED,
+    CHAR_WALK_FRAMES, CHAR_WALK_FRAMES_FLIPPED,
+    CHAR_JUMP_START_FRAMES, CHAR_JUMP_START_FRAMES_FLIPPED,
+    CHAR_JUMP_END_FRAMES, CHAR_JUMP_END_FRAMES_FLIPPED,
+    AK_FRAMES, AK_FRAMES_FLIPPED,
+    SMG_FRAMES, SMG_FRAMES_FLIPPED,
+    ROCKET_FRAMES, ROCKET_FRAMES_FLIPPED,
+    SHOTGUN_FRAMES, SHOTGUN_FRAMES_FLIPPED,
+    PISTOL_FRAMES, PISTOL_FRAMES_FLIPPED,
+    load_character_frames, load_ak_frames, load_smg_frames,
+    load_rocket_frames, load_shotgun_frames, load_pistol_frames
+)
+import math
+
+# Re-export get_local_ip for convenience
+def get_local_ip():
+    return network_get_local_ip()
+
+
+class RemotePlayer(pg.sprite.Sprite):
+    """
+    Represents a remote player in the multiplayer game.
+    Uses the same sprites as the local player.
+    """
+    
+    def __init__(self, player_id: str, name: str):
         super().__init__()
+        # Ensure sprites are loaded
+        load_character_frames()
+        load_ak_frames()
+        load_smg_frames()
+        load_rocket_frames()
+        load_shotgun_frames()
+        load_pistol_frames()
+        
         self.player_id = player_id
         self.name = name
-        self.pos = pg.Vector2(x, y)
+        self.pos = pg.Vector2(S.WIDTH // 2, 100)
+        self.vel = pg.Vector2(0, 0)
         self.facing = 1
-        self.size = pg.Vector2(28, 36)
+        self.weapon_name = "Pistol"
+        self.is_firing = False
+        self.aim_angle = 0.0
+        self.anim_state = 'idle'
+        self.anim_frame = 0
+        self.health = 100
         
-        # Create character sprite (same as local player)
-        self.image = pg.Surface(self.size, pg.SRCALPHA)
-        self.draw_character()
-        self.rect = self.image.get_rect()
+        # Interpolation for smooth movement
+        self.target_pos = pg.Vector2(self.pos)
+        self.interp_speed = 15.0
+        
+        # Size matching local player
+        self.size = pg.Vector2(20, 40)
+        
+        # Set initial image
+        if CHAR_IDLE_FRAMES:
+            self.image = CHAR_IDLE_FRAMES[0]
+            self.sprite_size = pg.Vector2(self.image.get_width(), self.image.get_height())
+        else:
+            self.sprite_size = self.size.copy()
+            self.image = pg.Surface(self.size, pg.SRCALPHA)
+            self.image.fill((150, 150, 255))
+        
+        self.rect = pg.Rect(self.pos.x, self.pos.y, self.size.x, self.size.y)
+        
+        # Font for name rendering
+        self.name_font = pg.font.SysFont("consolas", 14, bold=True)
+        
+        # Generate a random color tint for this player (to distinguish players)
+        self.color_tint = (
+            random.randint(180, 255),
+            random.randint(180, 255),
+            random.randint(180, 255)
+        )
+    
+    def update_from_state(self, state: PlayerState):
+        """Update from network state"""
+        self.target_pos.x = state.x
+        self.target_pos.y = state.y
+        self.vel.x = state.vel_x
+        self.vel.y = state.vel_y
+        self.facing = state.facing
+        self.weapon_name = state.weapon_name
+        self.is_firing = state.is_firing
+        self.aim_angle = state.aim_angle
+        self.anim_state = state.anim_state
+        self.anim_frame = state.anim_frame
+        self.health = state.health
+        self.name = state.name
+    
+    def update(self, dt: float):
+        """Update remote player with interpolation"""
+        # Smooth interpolation to target position
+        diff = self.target_pos - self.pos
+        if diff.length() > 1:
+            move = diff * min(1.0, self.interp_speed * dt)
+            self.pos += move
+        else:
+            self.pos = self.target_pos.copy()
+        
         self.rect.topleft = self.pos
+        
+        # Update animation frame
+        self._update_animation()
     
-    def draw_character(self):
-        """Draw character sprite (copy from Player class)"""
-        self.image.fill((0, 0, 0, 0))
-        w, h = int(self.size.x), int(self.size.y)
-        
-        # Body - different color to distinguish from local player
-        body_rect = pg.Rect(w//4, h//3, w//2, h//2)
-        pg.draw.rect(self.image, (255, 180, 100), body_rect, border_radius=4)
-        pg.draw.rect(self.image, (235, 160, 80), body_rect, width=2, border_radius=4)
-        
-        # Head
-        head_size = w // 2.5
-        head_center = (w // 2, h // 5)
-        pg.draw.circle(self.image, (255, 220, 180), head_center, int(head_size))
-        pg.draw.circle(self.image, (200, 160, 130), head_center, int(head_size), width=2)
-        
-        # Eyes
-        eye_y = h // 6
-        pg.draw.circle(self.image, (50, 50, 80), (w//2 - 4, eye_y), 2)
-        pg.draw.circle(self.image, (50, 50, 80), (w//2 + 4, eye_y), 2)
-        
-        # Legs
-        leg_top = h // 3 + h // 2
-        leg_width = 5
-        pg.draw.rect(self.image, (180, 100, 60), (w//3 - 2, leg_top, leg_width, h - leg_top), border_radius=2)
-        pg.draw.rect(self.image, (180, 100, 60), (w - w//3 - 3, leg_top, leg_width, h - leg_top), border_radius=2)
-        
-        # Arms
-        arm_y = h // 3 + 5
-        arm_height = h // 3
-        pg.draw.rect(self.image, (255, 220, 180), (2, arm_y, 4, arm_height), border_radius=2)
-        pg.draw.rect(self.image, (255, 220, 180), (w - 6, arm_y, 4, arm_height), border_radius=2)
-    
-    def update_from_state(self, state):
-        """Update player from network state"""
-        self.pos.x = state['x']
-        self.pos.y = state['y']
-        self.facing = state['facing']
-        self.rect.topleft = self.pos
-    
-    def draw(self, surf):
-        """Draw the networked player"""
-        surf.blit(self.image, self.rect)
-        # Draw name tag
-        font = pg.font.SysFont("consolas", 14, bold=True)
-        name_surf = font.render(self.name, True, (255, 255, 255))
-        name_x = self.rect.centerx - name_surf.get_width() // 2
-        name_y = self.rect.top - 18
-        surf.blit(name_surf, (name_x, name_y))
-
-class MultiplayerGame:
-    def __init__(self, server_ip, player_name):
-        pg.init()
-        pg.display.set_caption("Crate Rush - Multiplayer")
-        self.screen = pg.display.set_mode((S.WIDTH, S.HEIGHT))
-        self.clock = pg.time.Clock()
-        self.font = pg.font.SysFont("consolas", 20, bold=True)
-        self.big_font = pg.font.SysFont("consolas", 60, bold=True)
-        self.mid_font = pg.font.SysFont("consolas", 32, bold=True)
-        
-        self.level = Level()
-        self.network = NetworkClient(server_ip)
-        self.player_name = player_name
-        
-        # Connect to server
-        if not self.network.connect(player_name):
-            print("[ERROR] Failed to connect to server!")
-            self.running = False
+    def _update_animation(self):
+        """Update the current animation frame"""
+        # Get appropriate frame list
+        if self.anim_state == 'idle' and CHAR_IDLE_FRAMES:
+            frames = CHAR_IDLE_FRAMES if self.facing > 0 else CHAR_IDLE_FRAMES_FLIPPED
+        elif self.anim_state == 'walk' and CHAR_WALK_FRAMES:
+            frames = CHAR_WALK_FRAMES if self.facing > 0 else CHAR_WALK_FRAMES_FLIPPED
+        elif self.anim_state == 'jump_start' and CHAR_JUMP_START_FRAMES:
+            frames = CHAR_JUMP_START_FRAMES if self.facing > 0 else CHAR_JUMP_START_FRAMES_FLIPPED
+        elif self.anim_state == 'jump_end' and CHAR_JUMP_END_FRAMES:
+            frames = CHAR_JUMP_END_FRAMES if self.facing > 0 else CHAR_JUMP_END_FRAMES_FLIPPED
+        else:
             return
         
-        print(f"[CONNECTED] Player ID: {self.network.player_id}")
+        # Clamp frame index
+        frame_idx = min(self.anim_frame, len(frames) - 1)
+        self.image = frames[frame_idx]
+    
+    def _get_weapon_frames(self):
+        """Get the appropriate weapon frames based on weapon name"""
+        weapon_name = self.weapon_name.lower()
+        if 'smg' in weapon_name and SMG_FRAMES:
+            return SMG_FRAMES, SMG_FRAMES_FLIPPED
+        elif 'ak' in weapon_name and AK_FRAMES:
+            return AK_FRAMES, AK_FRAMES_FLIPPED
+        elif 'rocket' in weapon_name and ROCKET_FRAMES:
+            return ROCKET_FRAMES, ROCKET_FRAMES_FLIPPED
+        elif 'shotgun' in weapon_name and SHOTGUN_FRAMES:
+            return SHOTGUN_FRAMES, SHOTGUN_FRAMES_FLIPPED
+        elif 'pistol' in weapon_name and PISTOL_FRAMES:
+            return PISTOL_FRAMES, PISTOL_FRAMES_FLIPPED
+        return None, None
+    
+    def draw(self, surf: pg.Surface, offset=(0, 0)):
+        """Draw the remote player with name above head"""
+        ox, oy = offset
         
-        # Local player
-        self.player = Player(S.WIDTH // 2 - 100, 60)
-        self.player.give_weapon(random.choice(WEAPON_POOL)())
+        # Calculate sprite draw position
+        sprite_w = self.image.get_width()
+        sprite_h = self.image.get_height()
         
-        # Other players
-        self.other_players = {}
+        draw_x = self.rect.centerx - sprite_w // 2 + ox
+        draw_y = self.rect.bottom - sprite_h + 12 + oy
         
-        # Game entities (managed by server)
-        self.enemies = pg.sprite.Group()
-        self.bullets = pg.sprite.Group()
-        self.crates = pg.sprite.Group()
-        self.particles = pg.sprite.Group()
+        # Draw player sprite
+        surf.blit(self.image, (draw_x, draw_y))
         
-        self.running = True
-        self.shake = 0.0
-        self.time = 0.0
+        # Draw weapon
+        weapon_frames, weapon_frames_flipped = self._get_weapon_frames()
+        if weapon_frames:
+            frame_idx = 0  # Use first frame for remote players (simplified)
+            base_img = weapon_frames[frame_idx]
+            
+            # Calculate rotation
+            if self.facing > 0:
+                rotated_img = pg.transform.rotate(base_img, self.aim_angle)
+            else:
+                flipped_img = pg.transform.flip(base_img, False, True)
+                rotated_img = pg.transform.rotate(flipped_img, self.aim_angle)
+            
+            weapon_center_x = self.rect.centerx + (12 * self.facing) + ox
+            weapon_center_y = draw_y + sprite_h // 2 + 30
+            rotated_rect = rotated_img.get_rect(center=(weapon_center_x, weapon_center_y))
+            
+            surf.blit(rotated_img, rotated_rect)
         
-        # Track bullet cooldown locally
-        self.shoot_cooldown = 0
+        # Draw name above player
+        name_surf = self.name_font.render(self.name, True, (255, 255, 255))
+        name_shadow = self.name_font.render(self.name, True, (0, 0, 0))
         
-    def update(self, dt):
-        self.time += dt
+        name_x = self.rect.centerx - name_surf.get_width() // 2 + ox
+        name_y = draw_y - 20
         
-        # Update local player
-        keys = pg.key.get_pressed()
-        dx = 0
-        if keys[pg.K_a] or keys[pg.K_LEFT]:
-            dx -= 1
-        if keys[pg.K_d] or keys[pg.K_RIGHT]:
-            dx += 1
+        # Shadow
+        surf.blit(name_shadow, (name_x + 1, name_y + 1))
+        # Name
+        surf.blit(name_surf, (name_x, name_y))
         
-        self.player.vel.x = dx * S.PLAYER_SPEED
-        if dx != 0:
-            self.player.facing = 1 if dx > 0 else -1
+        # Draw health bar
+        bar_width = 40
+        bar_height = 4
+        bar_x = self.rect.centerx - bar_width // 2 + ox
+        bar_y = draw_y - 10
         
-        if (keys[pg.K_SPACE] or keys[pg.K_w] or keys[pg.K_UP]) and self.player.on_ground:
-            self.player.vel.y = S.JUMP_VELOCITY
+        # Background
+        pg.draw.rect(surf, (60, 60, 60), (bar_x, bar_y, bar_width, bar_height))
+        # Health
+        health_width = int(bar_width * (self.health / 100))
+        health_color = (100, 255, 100) if self.health > 50 else (255, 200, 50) if self.health > 25 else (255, 80, 80)
+        pg.draw.rect(surf, health_color, (bar_x, bar_y, health_width, bar_height))
+
+
+class MultiplayerManager:
+    """
+    Manages multiplayer game state and network communication.
+    """
+    
+    def __init__(self):
+        self.client: Optional[GameClient] = None
+        self.server: Optional[GameServer] = None
+        self.is_host = False
+        self.connected = False
+        self.player_name = "Player"
+        self.remote_players: Dict[str, RemotePlayer] = {}
+        self.update_rate = 1/30  # 30 updates per second
+        self.update_timer = 0
+        self.pending_hits = []  # Hits received from network
+        self.local_health = 100  # Local player health
         
-        self.player.on_ground = self.player.physics_step(dt, self.level.platforms)
+    def host_game(self, name: str = "Player", port: int = 5555) -> tuple:
+        """
+        Host a new game server.
+        Returns (success, ip_address, error_message)
+        """
+        self.player_name = name
+        self.server = GameServer(port=port)
         
-        # Respawn if falling
-        if self.player.pos.y > S.HAZARD_HEIGHT + 100:
-            self.player.respawn()
+        if self.server.start():
+            self.is_host = True
+            # Also connect as a client to own server
+            self.client = GameClient()
+            ip = get_local_ip()
+            if self.client.connect(ip, port, name):
+                self.connected = True
+                return True, ip, ""
+            else:
+                self.server.stop()
+                return False, "", "Failed to connect to own server"
+        else:
+            return False, "", "Failed to start server"
+    
+    def join_game(self, host: str, name: str = "Player", port: int = 5555) -> tuple:
+        """
+        Join an existing game.
+        Returns (success, error_message)
+        """
+        self.player_name = name
+        self.client = GameClient()
         
-        self.player.rect.topleft = self.player.pos
+        if self.client.connect(host, port, name):
+            self.connected = True
+            self.is_host = False
+            return True, ""
+        else:
+            return False, "Failed to connect to server"
+    
+    def start_game(self):
+        """Host starts the game - notify all clients"""
+        if not self.is_host or not self.client:
+            return
+        msg = Message(Message.GAME_START, {"started": True})
+        self.client.send(msg)
+    
+    def check_game_started(self) -> bool:
+        """Check if we received a game start message"""
+        if not self.client:
+            return False
+        messages = self.client.get_messages()
+        for msg in messages:
+            if msg.type == Message.GAME_START:
+                return True
+        return False
+    
+    def disconnect(self):
+        """Disconnect from game"""
+        if self.client:
+            self.client.disconnect()
+            self.client = None
         
-        # Send player position to server
-        self.network.send_player_move(
-            self.player.pos.x, self.player.pos.y,
-            self.player.vel.x, self.player.vel.y,
-            self.player.facing
-        )
+        if self.server:
+            self.server.stop()
+            self.server = None
         
-        # Handle shooting
-        self.shoot_cooldown = max(0, self.shoot_cooldown - dt)
-        if self.player.weapon and (keys[pg.K_j] or keys[pg.K_f] or pg.mouse.get_pressed()[0]):
-            if self.shoot_cooldown <= 0:
-                ox = 14 * self.player.facing
-                oy = -6
-                origin = pg.Vector2(self.player.rect.centerx + ox, self.player.rect.centery + oy)
-                aim = pg.Vector2(pg.mouse.get_pos())
-                direction = (aim - origin)
-                if direction.length_squared() == 0:
-                    direction = pg.Vector2(self.player.facing, 0)
-                else:
-                    direction = direction.normalize()
-                
-                vel = direction * 900  # Bullet speed
-                self.shoot_cooldown = self.player.weapon.cooldown
-                
-                # Send shoot command to server
-                self.network.send_shoot(origin.x, origin.y, vel.x, vel.y, damage=1)
+        self.connected = False
+        self.is_host = False
+        self.remote_players.clear()
+    
+    def update(self, dt: float, local_player, local_weapon):
+        """Update multiplayer state"""
+        if not self.connected or not self.client:
+            return
         
-        # Get game state from server
-        game_state = self.network.get_game_state()
+        # Send local player state periodically
+        self.update_timer += dt
+        if self.update_timer >= self.update_rate:
+            self.update_timer = 0
+            self._send_player_state(local_player, local_weapon)
         
-        # Update other players
-        server_players = game_state.get('players', {})
-        current_player_ids = set(self.other_players.keys())
-        server_player_ids = set(int(pid) for pid in server_players.keys())
+        # Process incoming messages
+        messages = self.client.get_messages()
+        for msg in messages:
+            self._handle_message(msg)
+        
+        # Update remote player states from client
+        remote_states = self.client.get_remote_players()
+        for player_id, state in remote_states.items():
+            if player_id not in self.remote_players:
+                # New player joined
+                self.remote_players[player_id] = RemotePlayer(player_id, state.name)
+            self.remote_players[player_id].update_from_state(state)
         
         # Remove disconnected players
-        for pid in current_player_ids - server_player_ids:
-            if pid != self.network.player_id and pid in self.other_players:
-                del self.other_players[pid]
+        connected_ids = set(remote_states.keys())
+        for player_id in list(self.remote_players.keys()):
+            if player_id not in connected_ids:
+                del self.remote_players[player_id]
         
-        # Add/update players
-        for pid_str, pdata in server_players.items():
-            pid = int(pid_str)
-            if pid != self.network.player_id:
-                if pid not in self.other_players:
-                    self.other_players[pid] = NetworkedPlayer(
-                        pid, pdata['name'], pdata['x'], pdata['y']
-                    )
-                else:
-                    self.other_players[pid].update_from_state(pdata)
-        
-        # Update particles
-        for p in list(self.particles):
-            p.update(dt)
-        
-        # Check crate collection
-        server_crates = game_state.get('crates', {})
-        for crate_id_str, crate_data in server_crates.items():
-            crate_id = int(crate_id_str)
-            crate_pos = pg.Vector2(crate_data['x'], crate_data['y'])
-            if self.player.rect.collidepoint(crate_pos.x, crate_pos.y):
-                # Collect crate
-                weapon = random.choice(WEAPON_POOL)()
-                self.player.give_weapon(weapon)
-                self.network.send_collect_crate(crate_id, weapon.name)
-                self.shake = min(16, self.shake + 8)
-                Burst(self.particles, self.player.rect.center, (240, 210, 120), count=14, speed=280)
-        
-        self.shake = max(0.0, self.shake - 14.0 * dt)
+        # Update remote players
+        for remote in self.remote_players.values():
+            remote.update(dt)
     
-    def draw(self):
-        self.screen.fill((12, 14, 20))
+    def _send_player_state(self, player, weapon):
+        """Send local player state to server"""
+        if not self.client:
+            return
         
-        # Calculate shake offset
-        ox = int(random.uniform(-self.shake, self.shake))
-        oy = int(random.uniform(-self.shake, self.shake))
+        weapon_name = weapon.name if weapon else "None"
+        is_firing = getattr(player, 'is_firing', False)
         
-        # Draw platforms
-        for p in self.level.platforms:
-            self.screen.blit(p.image, p.rect.move(ox, oy))
+        state = PlayerState(
+            player_id=self.client.player_id,
+            name=self.player_name,
+            x=player.pos.x,
+            y=player.pos.y,
+            vel_x=player.vel.x,
+            vel_y=player.vel.y,
+            facing=player.facing,
+            weapon_name=weapon_name,
+            is_firing=is_firing,
+            aim_angle=getattr(player, 'aim_angle', 0.0),
+            anim_state=getattr(player, 'anim_state', 'idle'),
+            anim_frame=getattr(player, 'anim_frame', 0),
+            health=100
+        )
         
-        # Get game state
-        game_state = self.network.get_game_state()
-        
-        # Draw enemies from server
-        for enemy_data in game_state.get('enemies', {}).values():
-            rect = pg.Rect(enemy_data['x'], enemy_data['y'], 28, 36)
-            # Draw simple enemy representation
-            pg.draw.rect(self.screen, (220, 110, 120), rect.move(ox, oy), border_radius=4)
-        
-        # Draw crates from server
-        for crate_data in game_state.get('crates', {}).values():
-            rect = pg.Rect(crate_data['x'] - 11, crate_data['y'] - 11, 22, 22)
-            pg.draw.rect(self.screen, (200, 150, 80), rect.move(ox, oy), border_radius=2)
-        
-        # Draw bullets from server
-        for bullet_data in game_state.get('bullets', {}).values():
-            pos = (int(bullet_data['x']) + ox, int(bullet_data['y']) + oy)
-            pg.draw.circle(self.screen, (250, 230, 90), pos, 4)
-        
-        # Draw other players
-        for other_player in self.other_players.values():
-            pr = other_player.rect.move(ox, oy)
-            self.screen.blit(other_player.image, pr)
-            # Draw name
-            font = pg.font.SysFont("consolas", 14, bold=True)
-            name_surf = font.render(other_player.name, True, (255, 255, 255))
-            name_x = pr.centerx - name_surf.get_width() // 2
-            name_y = pr.top - 18
-            self.screen.blit(name_surf, (name_x, name_y))
-        
-        # Draw local player
-        pr = self.player.rect.move(ox, oy)
-        self.screen.blit(self.player.image, pr)
-        
-        # Draw particles
-        for spr in self.particles:
-            self.screen.blit(spr.image, spr.rect.move(ox, oy))
-        
-        # Draw HUD
-        self.draw_hud(game_state)
-        
-        pg.display.flip()
+        self.client.send_player_state(state)
     
-    def draw_hud(self, game_state):
-        """Draw HUD with multiplayer info"""
-        ui.draw_panel(self.screen, pg.Rect(8, 8, 360, 84), glow=True)
-        
-        # Get player's score from server
-        my_score = 0
-        server_players = game_state.get('players', {})
-        if str(self.network.player_id) in server_players:
-            my_score = server_players[str(self.network.player_id)]['score']
-        
-        ui.text(self.screen, self.mid_font, f"Crates: {my_score}", (255, 220, 100), (24, 20), glow=True)
-        ui.text(self.screen, self.font, f"Players: {len(server_players)}", S.FG_COLOR, (24, 54))
-        
-        weapon_name = self.player.weapon.name if self.player.weapon else 'None'
-        badge = pg.Rect(220, 20, 130, 36)
-        ui.draw_panel(self.screen, badge, bg=(40, 70, 150), border=(100, 160, 255), glow=True)
-        ui.text(self.screen, self.font, weapon_name, (255, 255, 255), (badge.centerx, badge.centery - 2), center=True, glow=True)
-        
-        ui.text(self.screen, self.font, f"ID: {self.network.player_id} | {self.player_name}", S.TIP_COLOR, (12, S.HEIGHT - 24))
+    def _handle_message(self, msg: Message):
+        """Handle incoming network messages"""
+        if msg.type == Message.PLAYER_HIT:
+            # Store hit info for processing
+            self.pending_hits.append(msg.data)
+        elif msg.type == Message.PLAYER_KILL:
+            # Player was killed - they'll respawn
+            pass
     
-    def run(self):
-        """Main game loop"""
-        while self.running:
-            dt = self.clock.tick(S.FPS) / 1000.0
+    def send_player_hit(self, target_player_id: str, damage: int):
+        """Send a hit notification to the server"""
+        if not self.client:
+            return
+        hit_data = {
+            "target_id": target_player_id,
+            "attacker_id": self.client.player_id,
+            "damage": damage
+        }
+        msg = Message(Message.PLAYER_HIT, hit_data)
+        self.client.send(msg)
+    
+    def send_player_kill(self, target_player_id: str):
+        """Send a kill notification to the server"""
+        if not self.client:
+            return
+        kill_data = {
+            "target_id": target_player_id,
+            "killer_id": self.client.player_id
+        }
+        msg = Message(Message.PLAYER_KILL, kill_data)
+        self.client.send(msg)
+    
+    def check_incoming_hits(self, local_player, particles, game):
+        """Check if we received any hits and apply damage"""
+        from .particles import Burst
+        
+        for hit in self.pending_hits:
+            target_id = hit.get("target_id", "")
+            damage = hit.get("damage", 10)
             
-            for event in pg.event.get():
-                if event.type == pg.QUIT:
-                    self.running = False
-                elif event.type == pg.KEYDOWN:
-                    if event.key == pg.K_ESCAPE:
-                        self.running = False
-            
-            if self.network.connected:
-                self.update(dt)
-                self.draw()
-            else:
-                print("[DISCONNECTED] Lost connection to server")
-                self.running = False
+            # Check if we are the target
+            if self.client and target_id == self.client.player_id:
+                # We got hit!
+                self.local_health -= damage
+                game.shake = min(15, game.shake + 6)
+                Burst(particles, local_player.rect.center, (255, 100, 100), count=10, speed=220)
+                
+                if self.local_health <= 0:
+                    # We died - respawn
+                    self.local_health = 100
+                    local_player.respawn()
+                    Burst(particles, local_player.rect.center, (255, 50, 50), count=25, speed=350)
         
-        self.network.disconnect()
-        pg.quit()
+        self.pending_hits.clear()
+    
+    def draw_remote_players(self, surf: pg.Surface, offset=(0, 0)):
+        """Draw all remote players"""
+        for remote in self.remote_players.values():
+            remote.draw(surf, offset)
+    
+    def get_player_count(self) -> int:
+        """Get total player count (including self)"""
+        if self.client:
+            lobby = self.client.get_lobby_players()
+            if lobby:
+                return len(lobby)
+        return len(self.remote_players) + (1 if self.connected else 0)
+    
+    def get_player_list(self) -> list:
+        """Get list of all player names"""
+        if self.client:
+            lobby = self.client.get_lobby_players()
+            if lobby:
+                # Return names from lobby, putting self first
+                names = []
+                for p in lobby:
+                    if p["id"] == self.client.player_id:
+                        names.insert(0, p["name"])
+                    else:
+                        names.append(p["name"])
+                return names
+        
+        # Fallback to old method
+        names = [self.player_name] if self.connected else []
+        for remote in self.remote_players.values():
+            names.append(remote.name)
+        return names
 
-def start_multiplayer(server_ip="127.0.0.1", player_name="Player"):
-    """Start multiplayer game"""
-    game = MultiplayerGame(server_ip, player_name)
-    if game.running:
-        game.run()
+
+# Global multiplayer manager instance
+multiplayer = MultiplayerManager()

@@ -386,7 +386,7 @@ def PrintBanner():
     print("  │   disconnect <ip>   - Disconnect specific client                        │")
     print("  │   disconnect all    - Disconnect all clients                            │")
     print("  │                                                                         │")
-    print("  │ Hash Discovery (Distributed Brute Force):                               │")
+    print("  │ Hash Discovery (Distributed Brute Force Offline):                       │")
     print("  │   hash add          - Add a research entry (Pattern -> MD5)             │")
     print("  │   hash list         - View all research entries in database             │")
     print("  │   hash crack        - Start distributed pattern search                  │")

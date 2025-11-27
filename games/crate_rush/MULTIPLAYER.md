@@ -1,99 +1,96 @@
 # Crate Rush - Multiplayer Mode
 
-## 🎮 How to Play Online Multiplayer
+## Overview
 
-### Option 1: Play on Local Network (LAN)
+Crate Rush now supports LAN multiplayer! Play with your friends on the same local network.
 
-#### Step 1: Start the Server
-One person needs to host the game server:
+## Features
 
-```bash
-cd games/crate_rush
-python start_server.py
-```
+- **Host a Game**: Create a lobby that others can join
+- **Join a Game**: Connect to a friend's game using their IP address
+- **Real-time Gameplay**: See other players move, shoot, and play in real-time
+- **Player Names**: Each player's name is displayed above their head
+- **Same Sprites**: All players use the same character and weapon sprites
 
-The server will display its IP address. Share this IP with other players!
+## How to Play
 
-#### Step 2: Join the Game
-Other players can join by running:
+### Hosting a Game
 
-```bash
-cd games/crate_rush
-python join_game.py
-```
+1. From the main menu, select **ONLINE MULTIPLAYER**
+2. Press **N** to set your player name (optional)
+3. Select **HOST GAME** and press Enter
+4. Share your IP address (displayed on screen) with friends
+5. Wait for players to join
+6. Press **SPACE** to start the game
 
-When prompted:
-- Enter your player name
-- Enter the server's IP address
+### Joining a Game
 
-### Option 2: Play on the Same Computer (localhost)
+1. From the main menu, select **ONLINE MULTIPLAYER**
+2. Press **N** to set your player name (optional)
+3. Select **JOIN GAME** and press Enter
+4. Enter the host's IP address
+5. Press Enter to connect
+6. Wait for the host to start the game
 
-1. Start the server:
-```bash
-python start_server.py
-```
+## Technical Details
 
-2. In another terminal, start clients:
-```bash
-python join_game.py
-```
+### Network Architecture
 
-When asked for server IP, just press Enter (uses 127.0.0.1 by default)
+- Uses TCP sockets for reliable communication
+- Server-client architecture with one host acting as both server and client
+- State updates sent at 30 Hz for smooth gameplay
+- Position interpolation for smooth remote player movement
 
-You can open multiple terminals to test with multiple players!
+### Port Configuration
 
-## 🎯 Game Features
+- Default port: **5555**
+- Can specify custom port when joining: `192.168.1.100:5556`
 
-### Multiplayer Features:
-- **Multiple Players**: See and play with other players in real-time
-- **Shared World**: All players share the same enemies, crates, and bullets
-- **Real-time Sync**: Player movements, shooting, and collections sync instantly
-- **Scoreboard**: Track your score and compete with others
-- **Player Names**: See who you're playing with
+### Current Limitations (Private IP)
 
-### Controls (Same as Single Player):
-- **Move**: A/D or Arrow Keys
-- **Jump**: Space
-- **Shoot**: J/F or Mouse Click
-- **Quit**: ESC
+The game currently works on **Local Area Network (LAN)** only:
+- All players must be on the same local network
+- Uses private IP addresses (e.g., 192.168.x.x)
 
-## 🔧 Technical Details
+### Future: Public IP Support
 
-- **Server Port**: 5051
-- **Protocol**: TCP/IP with JSON messages
-- **Update Rate**: ~60 times per second
-- **Players**: Unlimited (tested with multiple clients)
+To enable internet play in the future:
+1. The host needs to set up **port forwarding** on their router (port 5555)
+2. Share the **public IP** instead of private IP
+3. Or use a VPN service like Hamachi to create a virtual LAN
 
-## 🐛 Troubleshooting
+## Controls (Multiplayer)
 
-**Can't connect to server?**
-- Make sure the server is running first
-- Check firewall settings (port 5051 must be open)
-- Verify the IP address is correct
-- For LAN play, both computers must be on the same network
+| Action | Key |
+|--------|-----|
+| Move Left | A / Left Arrow |
+| Move Right | D / Right Arrow |
+| Jump | Space / W / Up Arrow |
+| Shoot | J / F / Left Mouse |
+| Pause | P / Escape |
 
-**Server won't start?**
-- Port 5051 might be in use
-- Try restarting your computer
-- Check if another instance is already running
+## Troubleshooting
 
-**Lag or disconnections?**
-- Check network connection
-- Server needs stable internet
-- Reduce network load (close other apps)
+### Can't Connect to Host
 
-## 🎮 Single Player Mode
+1. Make sure both players are on the same network
+2. Check if the host's firewall allows connections on port 5555
+3. Verify the IP address is correct
+4. Try using `127.0.0.1` if testing on the same machine
 
-To play single player (offline), just run:
-```bash
-python -m crate_rush.main
-```
+### Laggy Movement
 
-## 📝 Server Commands
+- Check your network connection
+- Reduce the number of players
+- Close bandwidth-heavy applications
 
-While the server is running:
-- **Ctrl+C**: Stop the server gracefully
-- Server automatically manages all game state
-- Check console for player connections/disconnections
+### Connection Lost
 
-Enjoy playing Crate Rush with your friends! 🚀
+- The game will notify you if the connection is lost
+- Try reconnecting or host a new game
+
+## Files
+
+- `network.py` - Network client/server implementation
+- `multiplayer.py` - Multiplayer game logic and remote player rendering
+- `settings.py` - Multiplayer state constants
