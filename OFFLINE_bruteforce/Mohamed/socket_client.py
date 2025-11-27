@@ -8,15 +8,20 @@ import threading
 
 # --- Firebase Setup (Required for Canvas Environment) ---
 # Although this client doesn't use Firestore, these globals must be defined.
+
+
 try:
     __app_id = os.environ.get('__app_id', 'default-app-id')
     __firebase_config = os.environ.get('__firebase_config', '{}')
     __initial_auth_token = os.environ.get('__initial_auth_token', None)
 except:
     # Fallback in case environment variables are not available
+    
     __app_id = 'default-app-id'
     __firebase_config = '{}'
     __initial_auth_token = None
+
+
 # --------------------------------------------------------
 
 
@@ -33,16 +38,6 @@ client_id = f"worker-{random.randint(1000, 9999)}" # Unique ID for this worker i
 
 # --- Helper Functions ---
 
-def generate_system_info():
-    """Generates mock system info for initial handshake."""
-    return {
-        "client_id": client_id,
-        "client_name": f"Distributed Worker {client_id.split('-')[-1]}",
-        "cpu": "Intel Core i7 (Mock)",
-        "cpu_rating": 8000,
-        "gpu": {"name": "NVIDIA RTX 3080 (Mock)", "rating": 12000},
-        "system_type": "distributed_worker"
-    }
 
 def send_to_server(sock, data):
     """Sends JSON data reliably to the server."""
@@ -107,7 +102,6 @@ def run_client():
             print(f"\n[CONN] Successfully connected! ID: {client_id}")
 
             # 1. Send initial system info for handshake
-            send_to_server(client_socket, generate_system_info())
             send_to_server(client_socket, {"type": "STATUS", "status": client_status})
 
             # 2. Main listening loop

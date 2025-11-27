@@ -1,7 +1,7 @@
 # socket_tasks.py (Defines the task that packages work instructions)
 
 from celery import Celery
-from Mohamed.config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
+from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
 
 # Setup Celery Application 
 app = Celery('socket_tasks',

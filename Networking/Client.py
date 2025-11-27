@@ -7,6 +7,8 @@ import base64
 import os
 from pathlib import Path
 from Function_Net.recieving import receive_and_decompress_file
+import hashlib
+
 
 
 HEADER = 64 
@@ -224,6 +226,35 @@ def get_system_info():
     }
 
 
+bru
+def brute_force_discovery(hash_value, start_range, end_range, length=6):
+    """
+    Simulates the actual brute-force work.
+    This function will be called with the task payload.
+    """
+    # NOTE: The actual character set used must match the one used by the dispatcher.
+    CHARACTERS = "abcdefghijklmnopqrstuvwxyz01234456789"
+    
+    print(f"    [TASK] Starting discovery for hash: {hash_value[:10]}... from {start_range} to {end_range}")
+    
+    # Simple, non-recursive brute force for fixed length
+    for i in range(start_range, end_range + 1):
+        pattern = ""
+        temp_i = i
+        
+        # Convert index 'i' back into the character pattern
+        for _ in range(length):
+            pattern = CHARACTERS[temp_i % len(CHARACTERS)] + pattern
+            temp_i //= len(CHARACTERS)
+            
+        # Simulate the check
+        computed_hash = hashlib.sha256(pattern.encode('utf-8')).hexdigest()
+        
+        if computed_hash == hash_value:
+            return pattern
+            
+    return None # Pattern not found in this chunk
+
 if __name__ == "__main__":
     print("═" * 80)
     print("              CLIENT - Connecting to Server")
@@ -251,8 +282,12 @@ if __name__ == "__main__":
             try:
                 message_data = receive_message(client)
                 
-                if message_data:
-                    handle_file_message(message_data)
+                # if message_data:
+                #     handle_file_message(message_data)
+                if message_data :
+                    message_str = message_data.decode(FORMAT)
+                    if message_str == "BROADCASTING":   
+                        brute_force_discovery("example_hash", 0, 1000, length=6)
                     
             except socket.timeout:
                 continue
