@@ -3,18 +3,15 @@ import threading
 import os
 import json
 import time
+import sys
+import sqlite3
+import hashlib
+import itertools
+import math
 from Function_Net.sending import files_to_base64, base64_to_file, files_to_base64_archive, base64_archive_to_files, selecting_files
 from Function_Net.recieving import receive_and_decompress_file, receive_multiple_files, receive_file_simple
 from tkinter import Tk, filedialog
-
-##--------------------------Server Configuration-------------------------##
-HEADER = 64
-PORT = 5050
-SERVER = socket.gethostbyname(socket.gethostname())
-ADDR = (SERVER, PORT)
-FORMAT = 'utf-8'
-##------------------------------------------------------------------------##
-
+from OFFLINE_bruteforce.Mohamed.socket_client import brute_force_discovery
 
 ##--------------------------ANSI escape codes-----------------------------##
 RED = "\033[91m"
@@ -23,11 +20,35 @@ YELLOW = "\033[93m"
 BLUE = "\033[94m"
 RESET = "\033[0m"
 ##------------------------------------------------------------------------##
+
+# Try to import Celery components (optional - for distributed hash discovery)
+try:
+    from celery import chord, group
+    from OFFLINE_bruteforce.Mohamed.socket_tasks import package_socket_task, handle_completion_callback
+    from OFFLINE_bruteforce.Mohamed.config import MAX_PATTERN_LENGTH, CHARACTER_SET, CELERY_BROKER_URL
+    CELERY_AVAILABLE = True
+except ImportError:
+    CELERY_AVAILABLE = False
+    print(f"{YELLOW}[WARNING] Celery not available. Hash discovery features will be limited.{RESET}")
+
+##--------------------------Server Configuration-------------------------##
+HEADER = 64
+PORT = 5050
+SERVER = socket.gethostbyname(socket.gethostname())
+ADDR = (SERVER, PORT)
+FORMAT = 'utf-8'
+##------------------------------------------------------------------------##
 ##--------------Variables for client management----------------##
 clients = {}
 clients_lock = threading.Lock()
 client_id_counter = 0
 client_id_lock = threading.Lock()
+##------------------------------------------------------------##
+
+##--------------Hash Discovery Variables----------------------##
+CRACKED_PATTERNS = {}  # {task_id: pattern}
+DB_FILE = "crypto_research.db"
+task_broker = None  # Will be initialized if Celery is available
 ##------------------------------------------------------------##
 
 
@@ -163,8 +184,31 @@ def handle_client(conn, addr):
                     try:
                         message = json.loads(message_data.decode(FORMAT))
                         
+                        # Handle WORKER_ID messages from clients after broadcast
+                        if message.get("type") == "WORKER_ID":
+                            worker_id = message.get("worker_id")
+                            if worker_id:
+                                with clients_lock:
+                                    if addr in clients:
+                                        clients[addr]["worker_id"] = worker_id
+                                        clients[addr]["worker_status"] = "STARTING"
+                                print(f"\n{GREEN}[WORKER] {client_name} registered as {YELLOW}{worker_id}{RESET}")
+                                print(f"{RED}Server> {RESET}", end="", flush=True)
+                        
+                        # Handle STATUS messages from workers (socket_client)
+                        elif message.get("type") == "STATUS":
+                            worker_id = message.get("client_id")
+                            status = message.get("status")
+                            if worker_id:
+                                with clients_lock:
+                                    if addr in clients:
+                                        clients[addr]["worker_id"] = worker_id
+                                        clients[addr]["worker_status"] = status
+                                print(f"\n{BLUE}[WORKER] {worker_id} status: {status}{RESET}")
+                                print(f"{RED}Server> {RESET}", end="", flush=True)
+                        
                         # Handle file_archive messages from clients
-                        if message.get("type") == "file_archive":
+                        elif message.get("type") == "file_archive":
                             filename = message.get("filename")
                             base64_data = message.get("data")
                             
@@ -212,9 +256,11 @@ def display_connected_clients():
     print(f"{BLUE}├{'─'*78}┤{RESET}")
                 
     if client_list:
-        for i, (addr, name, client_id, cpu, cpu_rating, gpu, gpu_rating) in enumerate(client_list, 1):
-            # Client basic info
-            print(f"{BLUE}│{RESET}   {YELLOW}[ID: #{client_id}]{RESET} {GREEN}{name}{RESET} - {YELLOW}{addr[0]}:{addr[1]}{RESET}")
+        for i, (addr, name, client_id, cpu, cpu_rating, gpu, gpu_rating, worker_id, worker_status) in enumerate(client_list, 1):
+            # Client basic info - show worker_id if available
+            display_id = worker_id if worker_id else f"#{client_id}"
+            status_str = f" [{worker_status}]" if worker_status else ""
+            print(f"{BLUE}│{RESET}   {YELLOW}[{display_id}]{RESET}{status_str} {GREEN}{name}{RESET} - {YELLOW}{addr[0]}:{addr[1]}{RESET}")
             
             # CPU info with rating
             cpu_display = cpu[:50] if len(cpu) > 50 else cpu
@@ -249,18 +295,25 @@ def display_connected_clients():
 
 def list_clients():
     with clients_lock:
-        return [(addr, info["name"], info["id"], info.get("cpu", "Unknown"), info.get("cpu_rating", 0), info.get("gpu", {}), info.get("gpu_rating", 0)) for addr, info in clients.items()]
+        return [(addr, info["name"], info["id"], info.get("cpu", "Unknown"), info.get("cpu_rating", 0), info.get("gpu", {}), info.get("gpu_rating", 0), info.get("worker_id", None), info.get("worker_status", None)) for addr, info in clients.items()]
 def disconnect_client_by_id(client_id):
     with clients_lock:
+        addr_to_remove = None
         for addr, info in clients.items():
             if info["id"] == client_id:
                 try:
                     info["conn"].close()
+                    addr_to_remove = addr
                     print(f"{GREEN} Client ID #{client_id} ({info['name']}) disconnected successfully.{RESET}")
-                    return True
                 except Exception as e:
                     print(f"{RED} Error disconnecting client #{client_id}: {e}{RESET}")
                     return False
+                break
+        
+        if addr_to_remove:
+            del clients[addr_to_remove]
+            return True
+    
     print(f"{YELLOW}Client ID #{client_id} not found.{RESET}")
     return False
 
@@ -272,13 +325,19 @@ def disconnect_all_clients():
         
         disconnected = 0
         total = len(clients)
+        addrs_to_remove = []
         
         for addr, info in list(clients.items()):
             try:
                 info["conn"].close()
+                addrs_to_remove.append(addr)
                 disconnected += 1
             except Exception as e:
                 print(f"{RED}Error disconnecting {info['name']}: {e}{RESET}")
+        
+        # Remove all disconnected clients from the dictionary
+        for addr in addrs_to_remove:
+            del clients[addr]
         
         print(f"{GREEN}Disconnected {disconnected}/{total} clients.{RESET}")
 
@@ -306,6 +365,12 @@ def PrintBanner():
     print("  │   disconnect <ip>   - Disconnect specific client                        │")
     print("  │   disconnect all    - Disconnect all clients                            │")
     print("  │                                                                         │")
+    print("  │ Hash Discovery (Distributed Brute Force):                               │")
+    print("  │   hash add          - Add a research entry (Pattern -> MD5)             │")
+    print("  │   hash list         - View all research entries in database             │")
+    print("  │   hash crack        - Start distributed pattern search                  │")
+    print("  │   hash status       - Show cracked patterns and task status             │")
+    print("  │                                                                         │")
     print("  │ Utility:                                                                │")
     print("  │   clear             - Clear the terminal screen                         │")
     print("  │   help              - Show this help message                            │")
@@ -313,6 +378,8 @@ def PrintBanner():
     print("  │   logs              - Show recent client logs                           │")
     print("  │   quit              - Shut down the server                              │")
     print("  └─────────────────────────────────────────────────────────────────────────┘")
+    celery_status = f"{GREEN}Available{RESET}" if CELERY_AVAILABLE else f"{RED}Not Available{RESET}"
+    print(f"  Celery Status: {celery_status}")
     print("" + RESET)
 
 def select_file_dialog():
@@ -444,11 +511,354 @@ def broadcating_BrutForcing():
         except Exception as e:
             print(f"{RED}Error broadcasting brute force message: {e}{RESET}")
 
+
+##--------------------------Hash Discovery Functions--------------------------##
+
+class ResearchDBManager:
+    """Manages the local SQLite database for research entry storage."""
+    def __init__(self):
+        self.conn = sqlite3.connect(DB_FILE)
+        self.cur = self.conn.cursor()
+        self.create_research_table()
+
+    def create_research_table(self):
+        self.cur.execute("""
+            CREATE TABLE IF NOT EXISTS research_entries (
+                entry_id TEXT PRIMARY KEY,
+                encrypted_pattern TEXT
+            )
+        """)
+        self.conn.commit()
+
+    def add_research_entry(self, entry_id, pattern_data):
+        # NOTE: Using MD5 for hashing as per user's original code
+        encrypted = hashlib.md5(pattern_data.encode()).hexdigest()
+        self.cur.execute("INSERT OR REPLACE INTO research_entries VALUES (?,?)", 
+                         (entry_id, encrypted))
+        self.conn.commit()
+        return encrypted
+
+    def get_entry_encryption(self, entry_id):
+        self.cur.execute("SELECT encrypted_pattern FROM research_entries WHERE entry_id=?", (entry_id,))
+        row = self.cur.fetchone()
+        return row[0] if row else None
+    
+    def get_all_entries(self):
+        self.cur.execute("SELECT entry_id, encrypted_pattern FROM research_entries")
+        return self.cur.fetchall()
+
+
+class TaskBroker(threading.Thread):
+    """
+    Pulls packaged tasks from the Celery Backend and distributes them to 
+    available socket clients.
+    """
+    
+    def __init__(self, client_data_ref, client_lock_ref=None):
+        super().__init__()
+        self.running = True
+        self.polling_interval = 0.5
+        self.client_data_ref = client_data_ref 
+        self.client_lock = client_lock_ref or clients_lock
+        self.task_groups = {}  # {group_id: list_of_task_ids}
+
+    def _get_idle_client_info(self):
+        """Finds an IDLE client."""
+        with self.client_lock:
+            for addr, info in self.client_data_ref.items():
+                status = info.get("worker_status", "IDLE")
+                if status == "IDLE" and info.get("conn") is not None:
+                    return addr, info["conn"], info.get("name", f"Client-{addr[1]}")
+        return None, None, None
+
+    def _set_client_status(self, addr, status):
+        """Updates the client status in the main server's dictionary."""
+        with self.client_lock:
+            if addr in self.client_data_ref:
+                self.client_data_ref[addr]["worker_status"] = status
+                
+    def _send_task_message(self, conn, message_data):
+        """Sends a JSON message over the socket using newline delimiter."""
+        try:
+            conn.sendall((json.dumps(message_data) + '\n').encode('utf-8'))
+            return True
+        except Exception:
+            return False
+
+    def _get_next_available_task_id(self):
+        """Pulls the next available task ID from any active group."""
+        for group_id, task_list in self.task_groups.items():
+            if task_list:
+                return group_id, task_list.pop(0)
+        return None, None
+        
+    def run(self):
+        if not CELERY_AVAILABLE:
+            print(f"{YELLOW}[TASK BROKER] Celery not available. Broker thread exiting.{RESET}")
+            return
+            
+        from celery.result import AsyncResult
+        from OFFLINE_bruteforce.Mohamed.socket_tasks import app as celery_app
+        
+        print(f"[{time.strftime('%H:%M:%S')}] [TASK BROKER] Starting up. Polling Celery Backend...")
+        
+        while self.running:
+            addr, conn, name = self._get_idle_client_info()
+            group_id, task_id = self._get_next_available_task_id()
+
+            if conn and task_id:
+                try:
+                    task_result = AsyncResult(task_id, app=celery_app)
+                    payload_dict = task_result.get(timeout=3) 
+                    
+                    if not isinstance(payload_dict, dict) or payload_dict.get('type') != 'MD5_BRUTE_FORCE_CHUNK':
+                        print(f"[{time.strftime('%H:%M:%S')}] [BROKER WARNING] Task {task_id[:8]}... returned invalid payload. Skipping.")
+                        continue
+
+                    self._set_client_status(addr, "BUSY") 
+
+                    print(f"[{time.strftime('%H:%M:%S')}] [BROKER] Sending task {task_id[:8]}... to {name}.")
+                    if self._send_task_message(conn, payload_dict):
+                        pass  # Success
+                    else:
+                        self.task_groups[group_id].insert(0, task_id) 
+                        self._set_client_status(addr, "IDLE") 
+                        print(f"[{time.strftime('%H:%M:%S')}] [BROKER ERROR] Failed to send task to {name}. Re-queued.")
+
+                except Exception as e:
+                    print(f"[{time.strftime('%H:%M:%S')}] [BROKER ERROR] Failed to fetch or process Celery task {task_id}: {e}. Re-queuing.")
+                    if group_id in self.task_groups:
+                        self.task_groups[group_id].insert(0, task_id) 
+                    self._set_client_status(addr, "IDLE") 
+            
+            time.sleep(self.polling_interval)
+
+    def enqueue_group_tasks(self, group_id, num_tasks):
+        """
+        Fetches all task IDs belonging to a Celery group and adds them to the queue.
+        """
+        if not CELERY_AVAILABLE:
+            print(f"{RED}[BROKER] Celery not available.{RESET}")
+            return
+            
+        from celery.result import AsyncResult
+        from OFFLINE_bruteforce.Mohamed.socket_tasks import app as celery_app
+        
+        start_time = time.time()
+        try:
+            group_result = AsyncResult(group_id, app=celery_app)
+            
+            while not group_result.ready() and (time.time() - start_time) < 5:
+                 time.sleep(0.1)
+            
+            task_ids = [r.id for r in group_result.children]
+
+            if len(task_ids) != num_tasks:
+                print(f"[{time.strftime('%H:%M:%S')}] [BROKER WARNING] Expected {num_tasks} tasks, found {len(task_ids)}. Adding what was found.")
+
+            self.task_groups[group_id] = task_ids
+            print(f"[{time.strftime('%H:%M:%S')}] [TASK BROKER] New task group {group_id[:8]}... received: {len(task_ids)} added to queue.")
+            
+        except Exception as e:
+            print(f"[{time.strftime('%H:%M:%S')}] [BROKER FATAL] Could not retrieve task IDs from group {group_id}: {e}")
+            
+    def stop(self):
+        self.running = False
+        print(f"[{time.strftime('%H:%M:%S')}] [TASK BROKER] Shutting down.")
+
+
+def get_task_splitting_prefixes(length, num_workers, char_set_size):
+    """
+    SMART ALGORITHM: Calculates the best prefix length to split the work 
+    to ensure all 'num_workers' are kept busy.
+    """
+    if not CELERY_AVAILABLE:
+        return [None]
+        
+    if length <= 2 or char_set_size ** length <= num_workers:
+        return [None]
+
+    required_prefix_len = math.ceil(math.log(num_workers) / math.log(char_set_size))
+    prefix_len = min(int(required_prefix_len), length)
+
+    if prefix_len == 0:
+        return [None]
+
+    prefixes = ["".join(p) for p in itertools.product(CHARACTER_SET, repeat=prefix_len)]
+    return prefixes
+
+
+def discover_pattern_distributed(entry_id, num_workers, db_manager):
+    """
+    Splits the search space and dispatches task PACKAGES to Celery.
+    """
+    if not CELERY_AVAILABLE:
+        print(f"{RED}Celery is not available. Cannot run distributed discovery.{RESET}")
+        return None, 0
+        
+    target_encryption = db_manager.get_entry_encryption(entry_id)
+    if target_encryption is None:
+        print(f"{RED}Research entry '{entry_id}' not found in database.{RESET}")
+        return None, 0
+
+    char_set_size = len(CHARACTER_SET)
+    
+    print(f"\n{BLUE}🔍 DISTRIBUTING PATTERN DISCOVERY for: {entry_id}{RESET}")
+    print(f"Target encryption: {YELLOW}{target_encryption}{RESET}")
+
+    task_signatures = []
+    total_tasks_submitted = 0
+
+    for length in range(1, MAX_PATTERN_LENGTH + 1):
+        prefixes = get_task_splitting_prefixes(length, num_workers, char_set_size)
+        
+        print(f"  - Length {length}: Smartly splitting into {len(prefixes)} task(s).")
+        
+        for prefix in prefixes:
+            task_signatures.append(
+                package_socket_task.s(target_encryption, length, prefix)
+            )
+        total_tasks_submitted += len(prefixes)
+    
+    if not task_signatures:
+         print(f"{RED}No tasks generated. Check MAX_PATTERN_LENGTH and CHARACTER_SET settings.{RESET}")
+         return None, 0
+         
+    print(f"\nSubmitting a total of {GREEN}**{total_tasks_submitted}**{RESET} task PACKAGES to the distributed queue...")
+    
+    job = chord(
+        group(task_signatures), 
+        callback=handle_completion_callback.s()
+    )
+    
+    job_result = job.apply_async() 
+    print(f"Job submitted. Celery Job ID: {YELLOW}{job_result.id}{RESET}")
+    
+    return job_result.parent.id, total_tasks_submitted
+
+
+def hash_add_entry():
+    """Add a new research entry to the database."""
+    db = ResearchDBManager()
+    entry_id = input(f"{BLUE}Research entry ID: {RESET}").strip()
+    if not entry_id:
+        print(f"{YELLOW}Entry ID cannot be empty.{RESET}")
+        return
+    pattern_data = input(f"{BLUE}Pattern data to encrypt (the original text): {RESET}").strip()
+    if not pattern_data:
+        print(f"{YELLOW}Pattern data cannot be empty.{RESET}")
+        return
+    encrypted = db.add_research_entry(entry_id, pattern_data)
+    print(f"{GREEN}Research entry added successfully.{RESET}")
+    print(f"  Entry ID: {YELLOW}{entry_id}{RESET}")
+    print(f"  MD5 Hash: {YELLOW}{encrypted}{RESET}")
+
+
+def hash_list_entries():
+    """List all research entries in the database."""
+    db = ResearchDBManager()
+    entries = db.get_all_entries()
+    
+    print(f"\n{BLUE}┌{'─'*78}┐{RESET}")
+    print(f"{BLUE}│{RESET} 📊 RESEARCH ENTRIES IN DATABASE                                           {BLUE}│{RESET}")
+    print(f"{BLUE}├{'─'*78}┤{RESET}")
+    
+    if entries:
+        for entry_id, encrypted in entries:
+            print(f"{BLUE}│{RESET}   {YELLOW}{entry_id:<20}{RESET} -> {GREEN}{encrypted}{RESET}")
+    else:
+        print(f"{BLUE}│{RESET}   {YELLOW}No research entries found.{RESET}")
+    
+    print(f"{BLUE}└{'─'*78}┘{RESET}")
+
+
+def hash_crack():
+    """Start distributed pattern discovery."""
+    global task_broker
+    
+    if not CELERY_AVAILABLE:
+        print(f"{RED}Celery is not available. Install celery and redis to use this feature.{RESET}")
+        return
+    
+    db = ResearchDBManager()
+    
+    # Get number of workers
+    try:
+        with clients_lock:
+            connected_count = len(clients)
+        
+        default_workers = max(connected_count, 1)
+        workers_input = input(f"{BLUE}Enter the number of available workers [{default_workers}]: {RESET}").strip()
+        num_workers = int(workers_input) if workers_input else default_workers
+        
+        if num_workers <= 0:
+            raise ValueError
+    except ValueError:
+        print(f"{RED}Invalid number of workers. Please enter a positive integer.{RESET}")
+        return
+    
+    # Get entry ID
+    entry_id = input(f"{BLUE}Research entry ID to analyze: {RESET}").strip()
+    if not entry_id:
+        print(f"{YELLOW}Entry ID cannot be empty.{RESET}")
+        return
+    
+    # Run distributed discovery
+    group_id, num_tasks = discover_pattern_distributed(entry_id, num_workers, db)
+    
+    if group_id and task_broker:
+        print(f"[{time.strftime('%H:%M:%S')}] Notifying TaskBroker of {num_tasks} new tasks...")
+        task_broker.enqueue_group_tasks(group_id, num_tasks)
+
+
+def hash_status():
+    """Show status of cracked patterns and pending tasks."""
+    global task_broker, CRACKED_PATTERNS
+    
+    print(f"\n{BLUE}┌{'─'*78}┐{RESET}")
+    print(f"{BLUE}│{RESET} 📊 HASH DISCOVERY STATUS                                                   {BLUE}│{RESET}")
+    print(f"{BLUE}├{'─'*78}┤{RESET}")
+    
+    # Show Celery status
+    celery_status = f"{GREEN}Available{RESET}" if CELERY_AVAILABLE else f"{RED}Not Available{RESET}"
+    print(f"{BLUE}│{RESET}   Celery Status: {celery_status}")
+    
+    # Show broker status
+    if task_broker:
+        pending_tasks = sum(len(tasks) for tasks in task_broker.task_groups.values())
+        print(f"{BLUE}│{RESET}   Task Broker: {GREEN}Running{RESET}")
+        print(f"{BLUE}│{RESET}   Pending Tasks: {YELLOW}{pending_tasks}{RESET}")
+    else:
+        print(f"{BLUE}│{RESET}   Task Broker: {RED}Not Started{RESET}")
+    
+    print(f"{BLUE}├{'─'*78}┤{RESET}")
+    print(f"{BLUE}│{RESET} 🎉 CRACKED PATTERNS                                                        {BLUE}│{RESET}")
+    print(f"{BLUE}├{'─'*78}┤{RESET}")
+    
+    if CRACKED_PATTERNS:
+        for task_id, pattern in CRACKED_PATTERNS.items():
+            print(f"{BLUE}│{RESET}   Task {YELLOW}{task_id[:8]}...{RESET} -> {GREEN}{pattern}{RESET}")
+    else:
+        print(f"{BLUE}│{RESET}   {YELLOW}No patterns cracked yet.{RESET}")
+    
+    print(f"{BLUE}└{'─'*78}┘{RESET}")
+
+##----------------------------------------------------------------------------##
+
 def interactive_terminal():
+    global task_broker
+    
+    # Start the TaskBroker if Celery is available
+    if CELERY_AVAILABLE:
+        task_broker = TaskBroker(clients, clients_lock)
+        task_broker.daemon = True
+        task_broker.start()
+        print(f"{GREEN}[TASK BROKER] Started successfully.{RESET}")
+    
     try:
         while True:
             print(f"{RED}Server> {RESET}", end="")
-            command = input().strip()
+            command = input().strip().lower()
             
             if command == "help":
                 PrintBanner()
@@ -479,10 +889,17 @@ def interactive_terminal():
                 PrintBanner()
             elif command == "status":
                 print(f"[STATUS] Active connections: {threading.active_count() - 1}")
+                with clients_lock:
+                    print(f"[STATUS] Connected clients: {len(clients)}")
+                if task_broker:
+                    pending = sum(len(tasks) for tasks in task_broker.task_groups.values())
+                    print(f"[STATUS] Pending tasks: {pending}")
             elif command == "logs":
                 print(f"{YELLOW}[LOGS] Feature not implemented yet.{RESET}")
             elif command == "quit":
                 print(f"{RED} Shutting down the server...{RESET}")
+                if task_broker:
+                    task_broker.stop()
                 os._exit(0)
             elif command.startswith("send file"):
                 args = command.split(maxsplit=2)
@@ -497,12 +914,33 @@ def interactive_terminal():
                     print(f"{YELLOW}No file selected.{RESET}")
             elif command == "broadcast":
                 broadcating_BrutForcing()
+            
+            # Hash Discovery Commands
+            elif command == "hash add":
+                hash_add_entry()
+            elif command == "hash list":
+                hash_list_entries()
+            elif command == "hash crack":
+                hash_crack()
+            elif command == "hash status":
+                hash_status()
+            elif command.startswith("hash"):
+                print(f"{YELLOW}Unknown hash command. Available: hash add, hash list, hash crack, hash status{RESET}")
+            elif command == "":
+                pass  # Empty command, do nothing
+            else:
+                print(f"{YELLOW}Unknown command: '{command}'. Type 'help' for available commands.{RESET}")
+                
     except KeyboardInterrupt:
         print("\nDisconnecting from server...")
+        if task_broker:
+            task_broker.stop()
         server.close()
         print("Connection closed.")
     except Exception as e:
         print(f"An error occurred: {e}")
+        if task_broker:
+            task_broker.stop()
         if 'server' in locals():
             server.close()
 

@@ -6,6 +6,13 @@ import random
 import os
 import threading
 
+# Define colors locally instead of importing from Server
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+RESET = "\033[0m"
+
 # --- Firebase Setup (Required for Canvas Environment) ---
 # Although this client doesn't use Firestore, these globals must be defined.
 
@@ -26,10 +33,11 @@ except:
 
 
 # --- Configuration ---
-# NOTE: Replace these with your actual server host and port
-SERVER_HOST = "127.0.0.1" 
-SERVER_PORT = 9999
-BUFFER_SIZE = 1024
+HEADER = 64 
+FORMAT = 'utf-8'
+BUFFER_SIZE = 4096  # Add buffer size for recv()
+SERVER_HOST = "192.168.100.66"  # Renamed for consistency
+SERVER_PORT = 5050  # Renamed for consistency
 
 # Worker State
 client_socket = None
@@ -38,12 +46,35 @@ client_id = f"worker-{random.randint(1000, 9999)}" # Unique ID for this worker i
 
 # --- Helper Functions ---
 
+def send_message(conn, message_data):
+    """Send a message with length-prefixed protocol"""
+    try:
+        # Convert dict to JSON string if needed
+        if isinstance(message_data, dict):
+            message_data = json.dumps(message_data)
+        
+        if isinstance(message_data, str):
+            message_data = message_data.encode(FORMAT)
+        
+        # Create length header
+        message_length = len(message_data)
+        send_length = str(message_length).encode(FORMAT)
+        send_length += b' ' * (HEADER - len(send_length))
+        
+        # Send header then data
+        conn.sendall(send_length)
+        conn.sendall(message_data)
+        return True
+    except Exception as e:
+        print(f"{RED}Error sending message: {e}{RESET}")
+        return False
+    
 
 def send_to_server(sock, data):
     """Sends JSON data reliably to the server."""
     try:
-        message = json.dumps(data)
-        sock.sendall(message.encode('utf-8') + b'\n') # Use newline delimiter
+        # send_message handles dict to JSON conversion
+        send_message(sock, data)
     except Exception as e:
         print(f"[ERROR] Failed to send data: {e}")
         return False
@@ -71,8 +102,10 @@ def brute_force_discovery(hash_value, start_range, end_range, length=6):
             
         # Simulate the check
         computed_hash = hashlib.sha256(pattern.encode('utf-8')).hexdigest()
+        print(f"    [CHECK] Trying pattern: {pattern} => Hash: {computed_hash[:10]}...")
         
         if computed_hash == hash_value:
+            print(f"    [SUCCESS] Pattern found: {pattern} for hash: {hash_value[:10]}...")
             return pattern
             
     return None # Pattern not found in this chunk
@@ -101,31 +134,10 @@ def run_client():
             reconnect_delay = 1 # Reset delay on successful connection
             print(f"\n[CONN] Successfully connected! ID: {client_id}")
 
-            # 1. Send initial system info for handshake
-            send_to_server(client_socket, {"type": "STATUS", "status": client_status})
-
-            # 2. Main listening loop
-            while True:
-                # The server sends tasks and commands as JSON messages
-                data = client_socket.recv(BUFFER_SIZE)
-                if not data:
-                    print("[CONN] Server closed the connection.")
-                    break
-                
-                # Assuming the server sends a single task command per packet
-                try:
-                    message_str = data.decode('utf-8').strip()
-                    task = json.loads(message_str)
-                    
-                    if task.get("type") == "TASK":
-                        threading.Thread(target=process_task, args=(task,)).start()
-                        
-                except json.JSONDecodeError:
-                    # Handle cases where multiple JSON objects are in one buffer or incomplete
-                    # For simplicity, we just log the raw data.
-                    print(f"[RECV] Received raw data (possible split): {data.decode('utf-8').strip()}")
-                except Exception as e:
-                    print(f"[ERROR] Error processing received data: {e}")
+            # 1. Send initial system info for handshake (include client_id)
+            send_message(client_socket, {"type": "STATUS", "status": client_status, "client_id": client_id})
+            break
+        
 
         except ConnectionRefusedError:
             print(f"[ERROR] Connection refused. Retrying in {reconnect_delay}s...")
@@ -136,10 +148,10 @@ def run_client():
         except Exception as e:
             print(f"[ERROR] An unexpected error occurred: {e}. Retrying in {reconnect_delay}s...")
         
-        # Wait before attempting to reconnect
-        time.sleep(reconnect_delay)
-        reconnect_delay = min(reconnect_delay * 2, max_delay)
-        client_status = "DISCONNECTED"
+        # # Wait before attempting to reconnect
+        # time.sleep(reconnect_delay)
+        # reconnect_delay = min(reconnect_delay * 2, max_delay)
+        # client_status = "DISCONNECTED"
 
 def process_task(task_data):
     """Handles task processing in a separate thread."""
