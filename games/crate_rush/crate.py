@@ -43,3 +43,66 @@ class Crate(pg.sprite.Sprite):
     def apply(self, player):
         WeaponCls = random.choice(WEAPON_POOL)
         player.give_weapon(WeaponCls())
+
+
+class HealDrop(pg.sprite.Sprite):
+    """A healing item that falls from the sky and must be caught before hitting the ground"""
+    def __init__(self, x):
+        super().__init__()
+        self.size = 18
+        self.image = pg.Surface((self.size, self.size), pg.SRCALPHA)
+        self.draw_heal()
+        self.rect = self.image.get_rect(center=(x, -20))  # Start above screen
+        self.vel_y = S.HEAL_DROP_SPEED
+        self.heal_amount = S.HEAL_DROP_AMOUNT
+        self.pulse_timer = 0.0
+    
+    def draw_heal(self):
+        """Draw a heart/health icon"""
+        self.image.fill((0, 0, 0, 0))
+        size = self.size
+        center = size // 2
+        
+        # Draw a glowing heart shape
+        # Outer glow
+        glow_color = (255, 100, 100, 100)
+        heart_color = (255, 60, 80)
+        highlight_color = (255, 150, 160)
+        
+        # Simple heart using circles and triangle
+        heart_size = size // 2 - 2
+        
+        # Left bump
+        pg.draw.circle(self.image, heart_color, (center - heart_size//2, center - 2), heart_size//2 + 1)
+        # Right bump
+        pg.draw.circle(self.image, heart_color, (center + heart_size//2, center - 2), heart_size//2 + 1)
+        # Bottom triangle
+        points = [
+            (center - heart_size, center),
+            (center + heart_size, center),
+            (center, center + heart_size + 2)
+        ]
+        pg.draw.polygon(self.image, heart_color, points)
+        
+        # Highlight
+        pg.draw.circle(self.image, highlight_color, (center - heart_size//2 - 1, center - 3), 2)
+    
+    def update(self, dt, platforms):
+        """Update position - falls down, check for platform collision"""
+        self.vel_y = S.HEAL_DROP_SPEED
+        self.rect.y += int(self.vel_y * dt)
+        self.pulse_timer += dt
+        
+        # Check if hit a platform or went off screen - destroy it
+        for p in platforms:
+            if self.rect.colliderect(p.rect):
+                self.kill()
+                return
+        
+        # Destroy if fell below screen
+        if self.rect.top > S.HEIGHT:
+            self.kill()
+    
+    def apply(self, player):
+        """Heal the player"""
+        player.heal(self.heal_amount)

@@ -304,6 +304,34 @@ class Player(PhysicsSprite):
         self.muzzle_flash_timer = 0.0  # For muzzle flash effect
         self.aim_angle = 0.0  # Angle to mouse in degrees
         self.was_on_ground = True  # Track previous ground state for jump detection
+        self.input_mode = 'mouse'  # Track last used input: 'mouse' or 'controller'
+        self.last_mouse_pos = pg.Vector2(0, 0)  # Track mouse position to detect movement
+        
+        # Health system
+        self.max_health = 4  # Will be set by difficulty
+        self.health = self.max_health
+    
+    def set_health_from_difficulty(self, difficulty):
+        """Set max health based on difficulty settings"""
+        settings = S.DIFFICULTY_SETTINGS.get(difficulty, S.DIFFICULTY_SETTINGS[S.DIFF_NORMAL])
+        self.max_health = settings.get('player_health', 4)
+        self.health = self.max_health
+    
+    def take_damage(self, amount=1):
+        """Take damage and return True if player died"""
+        if self.invuln > 0:
+            return False
+        self.health -= amount
+        self.invuln = 1.0  # Brief invulnerability after being hit
+        if self.health <= 0:
+            self.health = 0
+            self.alive = False
+            return True
+        return False
+    
+    def heal(self, amount=1):
+        """Heal the player"""
+        self.health = min(self.max_health, self.health + amount)
     
     def draw_character_fallback(self):
         """Draw a fallback character sprite if images not loaded"""
@@ -410,13 +438,64 @@ class Player(PhysicsSprite):
         self.rect.topleft = self.pos
         self.invuln = 2.0  # 2 seconds of invulnerability after respawn
 
-    def update(self, dt, platforms, bullets):
+    def update(self, dt, platforms, bullets, joystick=None):
         keys = pg.key.get_pressed()
         dx = 0
+        
+        # Keyboard input
         if keys[pg.K_a] or keys[pg.K_LEFT]:
             dx -= 1
         if keys[pg.K_d] or keys[pg.K_RIGHT]:
             dx += 1
+        
+        # Controller input
+        controller_shoot = False
+        
+        if joystick:
+            # Left stick horizontal (axis 0) for movement
+            axis_x = joystick.get_axis(0)
+            deadzone = 0.2
+            if abs(axis_x) > deadzone:
+                dx = axis_x  # Use analog value for smooth movement
+            
+            # D-pad (hat) for movement
+            if joystick.get_numhats() > 0:
+                hat = joystick.get_hat(0)
+                if hat[0] != 0:
+                    dx = hat[0]
+            
+            # Right stick for aiming (axis 2 = X, axis 3 = Y on most controllers)
+            # This mimics mouse behavior - the stick direction IS the aim direction
+            if joystick.get_numaxes() >= 4:
+                aim_x = joystick.get_axis(2) if joystick.get_numaxes() > 2 else 0
+                aim_y = joystick.get_axis(3) if joystick.get_numaxes() > 3 else 0
+                stick_magnitude = math.sqrt(aim_x * aim_x + aim_y * aim_y)
+                
+                if stick_magnitude > deadzone:
+                    self.input_mode = 'controller'  # Switch to controller mode
+                    # Calculate angle from stick position (like mouse position relative to player)
+                    self.aim_angle = math.degrees(math.atan2(-aim_y, aim_x))
+                    # Update facing based on aim direction
+                    if aim_x > 0.1:
+                        self.facing = 1
+                    elif aim_x < -0.1:
+                        self.facing = -1
+            
+            # R2/RT trigger for shooting (axis 5 on PS4, axis 4 on some controllers)
+            # Or R1/RB button (button 5 on PS4)
+            if joystick.get_numaxes() >= 6:
+                r2_trigger = joystick.get_axis(5)
+                if r2_trigger > -0.5:  # Trigger pressed (goes from -1 to 1)
+                    controller_shoot = True
+            if joystick.get_numbuttons() > 5:
+                if joystick.get_button(5):  # R1/RB
+                    controller_shoot = True
+            
+            # X/A button for jump (button 0 on PS4, button 0 on Xbox)
+            if joystick.get_numbuttons() > 0:
+                if joystick.get_button(0) and self.on_ground:
+                    self.vel.y = S.JUMP_VELOCITY
+        
         self.vel.x = dx * S.PLAYER_SPEED
         if dx != 0:
             self.facing = 1 if dx > 0 else -1
@@ -426,8 +505,8 @@ class Player(PhysicsSprite):
         self.was_on_ground = self.on_ground
         self.on_ground = self.physics_step(dt, platforms)
         
-        # Respawn if on bottom platform or falling too far
-        if self.pos.y > 450:  # Respawn if at or below bottom platform
+        # Respawn if falling below screen
+        if self.pos.y > S.HEIGHT - 50:  # Respawn if at or below bottom platform
             print(f"[RESPAWN] Player at Y={self.pos.y} - respawning to top!")
             self.respawn()
         
@@ -477,25 +556,35 @@ class Player(PhysicsSprite):
         if self.muzzle_flash_timer > 0:
             self.muzzle_flash_timer -= dt
         
-        # Update aim angle based on mouse position
+        # Update aim angle based on mouse position (only if mouse moved)
         mouse_pos = pg.Vector2(pg.mouse.get_pos())
-        player_center = pg.Vector2(self.rect.centerx, self.rect.centery)
-        aim_dir = mouse_pos - player_center
-        if aim_dir.length_squared() > 0:
-            self.aim_angle = math.degrees(math.atan2(-aim_dir.y, aim_dir.x))  # Negative y because pygame y is inverted
-            # Update facing based on mouse position
-            if aim_dir.x > 0:
-                self.facing = 1
-            elif aim_dir.x < 0:
-                self.facing = -1
+        mouse_moved = (mouse_pos - self.last_mouse_pos).length_squared() > 4  # Detect if mouse moved
         
-        if self.weapon and (keys[pg.K_j] or keys[pg.K_f] or pg.mouse.get_pressed()[0]):
+        if mouse_moved:
+            self.input_mode = 'mouse'  # Switch to mouse mode
+            self.last_mouse_pos = mouse_pos.copy()
+        
+        # Only update aim from mouse if in mouse mode
+        if self.input_mode == 'mouse':
+            player_center = pg.Vector2(self.rect.centerx, self.rect.centery)
+            aim_dir = mouse_pos - player_center
+            if aim_dir.length_squared() > 0:
+                self.aim_angle = math.degrees(math.atan2(-aim_dir.y, aim_dir.x))  # Negative y because pygame y is inverted
+                # Update facing based on mouse position
+                if aim_dir.x > 0:
+                    self.facing = 1
+                elif aim_dir.x < 0:
+                    self.facing = -1
+        
+        if self.weapon and (keys[pg.K_j] or keys[pg.K_f] or pg.mouse.get_pressed()[0] or controller_shoot):
             if self.shoot_cooldown <= 0:
                 ox = 14 * self.facing
                 oy = -6
                 origin = pg.Vector2(self.rect.centerx + ox, self.rect.centery + oy)
-                aim = pg.Vector2(pg.mouse.get_pos())
-                direction = (aim - origin)
+                
+                # Use aim angle for direction (works for both mouse and controller)
+                angle_rad = math.radians(self.aim_angle)
+                direction = pg.Vector2(math.cos(angle_rad), -math.sin(angle_rad))
                 if direction.length_squared() == 0:
                     direction = pg.Vector2(self.facing, 0)
                 else:

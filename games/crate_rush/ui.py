@@ -24,7 +24,7 @@ def draw_panel(surf, rect, bg=S.PANEL_BG, border=S.PANEL_BORDER, glow=False):
     inner = rect.inflate(-6, -6)
     pg.draw.rect(surf, (255,255,255,30), inner, width=1, border_radius=9)
 
-def text(surf, font, msg, color, pos, shadow=True, center=False, glow=False):
+def text(surf, font, msg, color, pos, shadow=False, center=False, glow=False):
     if glow:
         for offset in [(0,4),(4,0),(-4,0),(0,-4)]:
             g = font.render(msg, True, (color[0]//3, color[1]//3, color[2]//3))
@@ -34,12 +34,6 @@ def text(surf, font, msg, color, pos, shadow=True, center=False, glow=False):
             else:
                 r.topleft = (pos[0]+offset[0], pos[1]+offset[1])
             surf.blit(g, r)
-    if shadow:
-        sh = font.render(msg, True, (0,0,0))
-        r = sh.get_rect()
-        r.center = pos if center else pos
-        r.move_ip(3,3)
-        surf.blit(sh, r)
     img = font.render(msg, True, color)
     r = img.get_rect()
     if center:

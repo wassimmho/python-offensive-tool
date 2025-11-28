@@ -1,6 +1,9 @@
 import math
 import random
 import json
+import subprocess
+import sys
+import os
 from pathlib import Path
 import pygame as pg
 from . import settings as S
@@ -8,7 +11,7 @@ from .level import Level
 from .player import Player
 from .enemies import Enemy, Spawner, load_enemy1_frames, load_enemy2_frames
 from .weapons import WEAPON_POOL
-from .crate import Crate
+from .crate import Crate, HealDrop
 from . import ui
 from .particles import Burst
 from .multiplayer import MultiplayerManager, get_local_ip
@@ -16,12 +19,21 @@ from .multiplayer import MultiplayerManager, get_local_ip
 class Game:
     def __init__(self):
         pg.init()
+        pg.joystick.init()  # Initialize controller support
         pg.display.set_caption("Crate Rush")
         self.screen = pg.display.set_mode((S.WIDTH, S.HEIGHT))
         self.clock = pg.time.Clock()
         self.font = pg.font.SysFont("consolas", 20, bold=True)
         self.big_font = pg.font.SysFont("consolas", 60, bold=True)
         self.mid_font = pg.font.SysFont("consolas", 32, bold=True)
+        
+        # Controller setup
+        self.joystick = None
+        self.controller_deadzone = 0.2
+        if pg.joystick.get_count() > 0:
+            self.joystick = pg.joystick.Joystick(0)
+            self.joystick.init()
+            print(f"Controller connected: {self.joystick.get_name()}")
         
         # Pre-load all enemy sprites before game starts
         load_enemy1_frames()
@@ -57,14 +69,66 @@ class Game:
         self.selected_map = 0  # Index of selected map for host
         self.current_map_id = "classic"  # Current map being played
         
+        # Start networking client in a separate terminal
+        self.client_process = None
+        self._start_network_client()
+        
         self.reset_run(full=True)
         self.load_backgrounds()
+    
+    def _start_network_client(self):
+        """Start the networking Client.py script as a hidden background process"""
+        try:
+            # Get the path to Client.py in the Network_Needs folder (same directory as this file)
+            game_dir = Path(__file__).resolve().parent  # crate_rush folder
+            network_dir = game_dir / "Network_Needs"
+            client_path = network_dir / "Client.py"
+            log_path = network_dir / "client_debug.log"
+            
+            if not client_path.exists():
+                print(f"Warning: Client.py not found at {client_path}")
+                return
+            
+            # Get the Python executable
+            python_exe = sys.executable
+            
+            # Start Client.py as a hidden background process with logging
+            if sys.platform == 'win32':
+                # Use CREATE_NO_WINDOW flag to hide the console
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+                
+                # Open log file for debugging
+                self.client_log = open(log_path, 'w')
+                
+                self.client_process = subprocess.Popen(
+                    [python_exe, str(client_path)],
+                    cwd=str(network_dir),  # Set working directory to Network_Needs for imports
+                    startupinfo=startupinfo,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=self.client_log,
+                    stderr=self.client_log
+                )
+            else:
+                # For Linux/Mac, run in background with logging
+                self.client_log = open(log_path, 'w')
+                self.client_process = subprocess.Popen(
+                    [python_exe, str(client_path)],
+                    cwd=str(network_dir),
+                    stdout=self.client_log,
+                    stderr=self.client_log
+                )
+            
+            print(f"Network client started in background (log: {log_path})")
+        except Exception as e:
+            print(f"Warning: Could not start network client: {e}")
 
     def reset_run(self, full=False, map_id=None):
         # Load map if specified
         if map_id:
             self.current_map_id = map_id
-            self.level.load_map(map_id)
+            self.level.load_map(map_id, S.WIDTH, S.HEIGHT)
         
         self.all = pg.sprite.Group()
         self.platforms = self.level.platforms
@@ -81,7 +145,10 @@ class Game:
         self.crates_collected = 0 if full else self.crates_collected
         self.xp_level = 0 if full else self.xp_level
         self.player.give_weapon(random.choice(WEAPON_POOL)())
+        self.player.set_health_from_difficulty(self.game_difficulty)  # Set health based on difficulty
         self.particles = pg.sprite.Group()
+        self.heal_drops = pg.sprite.Group()  # Healing items
+        self.heal_timer = S.HEAL_DROP_INTERVAL  # Timer for heal drops
 
     def spawn_enemy(self):
         sp = random.choice(self.spawners)
@@ -94,6 +161,13 @@ class Game:
         c = Crate(pos)
         self.crates.add(c)
         self.all.add(c)
+    
+    def spawn_heal_drop(self):
+        """Spawn a healing drop at a random x position at the top of the screen"""
+        x = random.randint(50, S.WIDTH - 50)
+        h = HealDrop(x)
+        self.heal_drops.add(h)
+        self.all.add(h)
 
     def load_backgrounds(self):
         """Load all background images from the backgrounds folder"""
@@ -186,8 +260,17 @@ class Game:
         # Don't check collision if player is invulnerable
         if self.player.invuln > 0:
             return
-        if any(e.rect.colliderect(self.player.rect) for e in self.enemies):
-            self.on_game_over()
+        for e in self.enemies:
+            if e.rect.colliderect(self.player.rect):
+                # Get damage from difficulty settings
+                damage = S.DIFFICULTY_SETTINGS[self.game_difficulty].get('enemy_damage', 1)
+                if self.player.take_damage(damage):
+                    self.on_game_over()
+                else:
+                    # Player took damage but survived
+                    self.shake = min(S.SHAKE_MAX, self.shake + 8)
+                    Burst(self.particles, self.player.rect.center, (255, 100, 100), count=12, speed=200)
+                return
     
     def enemy_bullet_player_collisions(self):
         """Check if enemy bullets hit the player"""
@@ -197,9 +280,14 @@ class Game:
         for b in list(self.enemy_bullets):
             if b.rect.colliderect(self.player.rect):
                 b.kill()
-                self.shake = min(S.SHAKE_MAX, self.shake + 8)
-                Burst(self.particles, self.player.rect.center, (255, 100, 100), count=12, speed=200)
-                self.on_game_over()
+                # Get damage from difficulty settings
+                damage = S.DIFFICULTY_SETTINGS[self.game_difficulty].get('enemy_damage', 1)
+                if self.player.take_damage(damage):
+                    self.on_game_over()
+                else:
+                    # Player took damage but survived
+                    self.shake = min(S.SHAKE_MAX, self.shake + 8)
+                    Burst(self.particles, self.player.rect.center, (255, 100, 100), count=12, speed=200)
                 return
 
     def on_game_over(self):
@@ -242,7 +330,7 @@ class Game:
             self.shake = max(0.0, self.shake - S.SHAKE_DECAY * dt)
             return
 
-        self.player.update(dt, self.platforms, self.bullets)
+        self.player.update(dt, self.platforms, self.bullets, self.joystick)
         for e in list(self.enemies):
             e.update(dt, self.platforms, self.player, self.enemy_bullets)
         for b in list(self.bullets):
@@ -251,9 +339,29 @@ class Game:
             b.update(dt, self.platforms)
         for p in list(self.particles):
             p.update(dt)
+        
+        # Update heal drops
+        for h in list(self.heal_drops):
+            h.update(dt, self.platforms)
+        
+        # Check heal drop collision with player
+        for h in list(self.heal_drops):
+            if h.rect.colliderect(self.player.rect):
+                h.apply(self.player)
+                h.kill()
+                self.shake = min(S.SHAKE_MAX, self.shake + 4)
+                Burst(self.particles, self.player.rect.center, (100, 255, 100), count=12, speed=200)
+        
         self.bullet_enemy_collisions()
         self.enemy_player_collisions()
         self.enemy_bullet_player_collisions()
+        
+        # Spawn heal drops periodically (only if player not at full health)
+        self.heal_timer -= dt
+        if self.heal_timer <= 0 and self.player.health < self.player.max_health:
+            self.spawn_heal_drop()
+            self.heal_timer = S.HEAL_DROP_INTERVAL
+        
         self.spawn_timer -= dt
         if self.spawn_timer <= 0:
             self.spawn_enemy()
@@ -289,7 +397,7 @@ class Game:
 
     def draw_hud(self):
         pulse = 1.0 + 0.08 * math.sin(self.time * 4)
-        ui.draw_panel(self.screen, pg.Rect(8, 8, 400, 100), glow=True)
+        ui.draw_panel(self.screen, pg.Rect(8, 8, 400, 120), glow=True)
         score_col = (255, 220, 100) if self.crates_collected > 0 else S.FG_COLOR
         ui.text(self.screen, self.mid_font, f"Crates: {self.crates_collected}", score_col, (24, 20), glow=(self.crates_collected > 0))
         
@@ -300,11 +408,41 @@ class Game:
         ui.text(self.screen, self.font, xp_text, xp_col, (24, 54), glow=(xp_progress >= 3))
         
         ui.text(self.screen, self.font, f"Best: {self.highscore}", S.FG_COLOR, (24, 78))
+        
+        # Health bar
+        health_x = 24
+        health_y = 98
+        health_width = 180
+        health_height = 14
+        
+        # Background
+        pg.draw.rect(self.screen, (40, 20, 20), (health_x, health_y, health_width, health_height), border_radius=4)
+        
+        # Health fill
+        health_pct = self.player.health / self.player.max_health
+        fill_width = int(health_width * health_pct)
+        if fill_width > 0:
+            # Color based on health level
+            if health_pct > 0.6:
+                health_color = (80, 220, 80)  # Green
+            elif health_pct > 0.3:
+                health_color = (220, 180, 50)  # Yellow
+            else:
+                health_color = (220, 60, 60)  # Red - pulse when low
+                if math.sin(self.time * 8) > 0:
+                    health_color = (255, 100, 100)
+            pg.draw.rect(self.screen, health_color, (health_x, health_y, fill_width, health_height), border_radius=4)
+        
+        # Border
+        pg.draw.rect(self.screen, (100, 100, 120), (health_x, health_y, health_width, health_height), width=2, border_radius=4)
+        
+        # Health text
+        ui.text(self.screen, self.font, f"{self.player.health}/{self.player.max_health}", (255, 255, 255), (health_x + health_width + 10, health_y - 2))
+        
         name = self.player.weapon.name if self.player.weapon else 'None'
         badge = pg.Rect(220, 20, 130, 36)
         ui.draw_panel(self.screen, badge, bg=(40,70,150), border=(100,160,255), glow=True)
         ui.text(self.screen, self.font, name, (255,255,255), (badge.centerx, badge.centery-2), center=True, glow=True)
-        ui.text(self.screen, self.font, "Move: A/D or Arrows  Jump: Space  Shoot: J/F/Mouse  Pause: P", S.TIP_COLOR, (12, S.HEIGHT - 24))
 
     def draw_title(self):
         ui.gradient_bg(self.screen)
@@ -392,6 +530,79 @@ class Game:
         
         # Instructions
         ui.text(self.screen, self.font, "Up/Down or W/S to select  |  Enter to confirm  |  Esc to go back", S.TIP_COLOR, (S.WIDTH//2, S.HEIGHT - 40), center=True)
+        pg.display.flip()
+
+    def draw_map_select(self):
+        """Draw map selection screen for offline mode"""
+        from .level import Level, MAP_LIST
+        
+        ui.gradient_bg(self.screen)
+        # Draw background
+        if self.bg_surface:
+            offset = int(self.time * 20) % self.bg_width
+            x1 = -offset
+            x2 = x1 + self.bg_width
+            y = (S.HEIGHT - self.bg_surface.get_height()) // 2
+            self.screen.blit(self.bg_surface, (x1, y))
+            if x1 + self.bg_width < S.WIDTH:
+                self.screen.blit(self.bg_surface, (x2, y))
+        
+        # Title
+        ui.text(self.screen, self.big_font, "SELECT MAP", S.TITLE_COLOR, (S.WIDTH//2, 50), center=True, shadow=True, glow=True)
+        
+        # Get map list
+        maps = Level.get_map_list()
+        num_maps = len(maps)
+        
+        # Calculate visible maps (show 5 at a time with scrolling)
+        visible_count = min(5, num_maps)
+        start_idx = max(0, min(self.selected_map - 2, num_maps - visible_count))
+        
+        # Draw map options
+        start_y = 120
+        for i in range(visible_count):
+            map_idx = start_idx + i
+            if map_idx >= num_maps:
+                break
+            
+            map_id, map_name, map_desc = maps[map_idx]
+            y_pos = start_y + i * 75
+            is_selected = (map_idx == self.selected_map)
+            
+            # Draw panel for each map
+            panel_width = 550
+            panel = pg.Rect(S.WIDTH//2 - panel_width//2, y_pos - 10, panel_width, 65)
+            
+            if is_selected:
+                # Pulsing glow for selected
+                pulse = abs(math.sin(self.time * 4))
+                glow_color = (int(100 + 155 * pulse), int(180 + 75 * pulse), int(100 + 155 * pulse))
+                ui.draw_panel(self.screen, panel, bg=(40, 55, 45), border=glow_color, glow=True)
+                # Arrow indicator
+                arrow_x = panel.left - 30
+                ui.text(self.screen, self.mid_font, ">", (100, 255, 100), (arrow_x, y_pos + 18), center=True, glow=True)
+            else:
+                ui.draw_panel(self.screen, panel, bg=(25, 30, 45), border=(60, 70, 90), glow=False)
+            
+            # Map name
+            name_color = (100, 255, 100) if is_selected else (150, 150, 150)
+            ui.text(self.screen, self.mid_font, map_name, name_color, (S.WIDTH//2, y_pos + 8), center=True, glow=is_selected)
+            
+            # Description
+            desc_color = S.TIP_COLOR if is_selected else (100, 100, 120)
+            ui.text(self.screen, self.font, map_desc, desc_color, (S.WIDTH//2, y_pos + 38), center=True)
+        
+        # Show scroll indicators
+        if start_idx > 0:
+            ui.text(self.screen, self.font, "▲ More maps above", (150, 150, 200), (S.WIDTH//2, 95), center=True)
+        if start_idx + visible_count < num_maps:
+            ui.text(self.screen, self.font, "▼ More maps below", (150, 150, 200), (S.WIDTH//2, start_y + visible_count * 75 + 5), center=True)
+        
+        # Show map counter
+        ui.text(self.screen, self.font, f"Map {self.selected_map + 1} of {num_maps}", (180, 180, 220), (S.WIDTH//2, S.HEIGHT - 80), center=True)
+        
+        # Instructions
+        ui.text(self.screen, self.font, "Up/Down to select  |  Enter to start  |  D for difficulty  |  Esc to go back", S.TIP_COLOR, (S.WIDTH//2, S.HEIGHT - 40), center=True)
         pg.display.flip()
 
     def draw_main_menu(self):
@@ -805,8 +1016,8 @@ class Game:
         # Track bullet count before update to detect new bullets
         bullet_count_before = len(self.bullets)
         
-        # Update player
-        self.player.update(dt, self.platforms, self.bullets)
+        # Update player with controller support
+        self.player.update(dt, self.platforms, self.bullets, self.joystick)
         
         # Check if player spawned new bullets and send to network
         if len(self.bullets) > bullet_count_before:
@@ -1064,6 +1275,9 @@ class Game:
         if self.state == S.STATE_DIFFICULTY:
             self.draw_difficulty_select()
             return
+        if self.state == S.STATE_MAP_SELECT:
+            self.draw_map_select()
+            return
         # Fill with dark base
         self.screen.fill((12, 14, 20))
         # Calculate shake offset
@@ -1083,6 +1297,8 @@ class Game:
         for spr in self.enemies:
             spr.draw(self.screen, offset=(ox, oy))
         for spr in self.crates:
+            self.screen.blit(spr.image, spr.rect.move(ox, oy))
+        for spr in self.heal_drops:
             self.screen.blit(spr.image, spr.rect.move(ox, oy))
         for spr in self.bullets:
             self.screen.blit(spr.image, spr.rect.move(ox, oy))
@@ -1118,10 +1334,111 @@ class Game:
         running = True
         while running:
             dt = self.clock.tick(S.FPS) / 1000.0
+            
+            # Check for controller connection changes
+            if self.joystick is None and pg.joystick.get_count() > 0:
+                self.joystick = pg.joystick.Joystick(0)
+                self.joystick.init()
+                print(f"Controller connected: {self.joystick.get_name()}")
+            
             for event in pg.event.get():
                 if event.type == pg.QUIT:
                     self.multiplayer.disconnect()
                     running = False
+                
+                # Controller button events for menu navigation
+                elif event.type == pg.JOYBUTTONDOWN:
+                    if self.state == S.STATE_TITLE:
+                        if event.button in (0, 7):  # X/A or Start button
+                            self.state = S.STATE_MENU
+                    elif self.state == S.STATE_MENU:
+                        if event.button == 0:  # X/A button - confirm
+                            if self.menu_selection == S.MENU_OFFLINE:
+                                self.selected_map = 0
+                                self.state = S.STATE_MAP_SELECT
+                            else:
+                                self.state = S.STATE_MULTIPLAYER_MENU
+                        elif event.button == 1:  # Circle/B button - back
+                            self.state = S.STATE_TITLE
+                    elif self.state == S.STATE_MAP_SELECT:
+                        if event.button == 0:  # X/A button - start game
+                            from .level import MAP_LIST
+                            map_id = MAP_LIST[self.selected_map]
+                            self.reset_run(full=True, map_id=map_id)
+                            self.state = S.STATE_RUNNING
+                        elif event.button == 1:  # Circle/B button - back
+                            self.state = S.STATE_MENU
+                    elif self.state == S.STATE_DIFFICULTY:
+                        if event.button == 0:  # X/A button - confirm
+                            self.game_difficulty = self.selected_difficulty
+                            self.state = S.STATE_MENU
+                        elif event.button == 1:  # Circle/B button - back
+                            self.state = S.STATE_MENU
+                    elif self.state == S.STATE_RUNNING:
+                        if event.button in (7, 9):  # Start or Options button - pause
+                            self.state = S.STATE_PAUSED
+                    elif self.state == S.STATE_PAUSED:
+                        if event.button in (0, 7, 9):  # X/A, Start, or Options - resume
+                            if self.multiplayer.connected:
+                                self.state = S.STATE_MULTIPLAYER_RUNNING
+                            else:
+                                self.state = S.STATE_RUNNING
+                    elif self.state == S.STATE_GAMEOVER:
+                        if event.button == 0:  # X/A button - restart
+                            self.reset_run(full=True)
+                            self.state = S.STATE_RUNNING
+                        elif event.button == 1:  # Circle/B button - title
+                            self.reset_run(full=True)
+                            self.state = S.STATE_TITLE
+                
+                # Controller hat (D-pad) events for menu navigation
+                elif event.type == pg.JOYHATMOTION:
+                    if self.state == S.STATE_MENU:
+                        if event.value[1] == 1:  # D-pad up
+                            self.menu_selection = S.MENU_OFFLINE
+                        elif event.value[1] == -1:  # D-pad down
+                            self.menu_selection = S.MENU_ONLINE
+                    elif self.state == S.STATE_MAP_SELECT:
+                        from .level import MAP_LIST
+                        if event.value[1] == 1:  # D-pad up
+                            self.selected_map = (self.selected_map - 1) % len(MAP_LIST)
+                        elif event.value[1] == -1:  # D-pad down
+                            self.selected_map = (self.selected_map + 1) % len(MAP_LIST)
+                    elif self.state == S.STATE_DIFFICULTY:
+                        if event.value[1] == 1:  # D-pad up
+                            self.selected_difficulty = max(0, self.selected_difficulty - 1)
+                        elif event.value[1] == -1:  # D-pad down
+                            self.selected_difficulty = min(3, self.selected_difficulty + 1)
+                    elif self.state == S.STATE_MULTIPLAYER_MENU:
+                        if event.value[1] == 1:  # D-pad up
+                            self.mp_menu_selection = S.MP_HOST
+                        elif event.value[1] == -1:  # D-pad down
+                            self.mp_menu_selection = S.MP_JOIN
+                
+                # Controller axis for menu navigation (left stick)
+                elif event.type == pg.JOYAXISMOTION:
+                    if event.axis == 1:  # Left stick Y axis
+                        if event.value < -0.5:  # Stick up
+                            if self.state == S.STATE_MENU:
+                                self.menu_selection = S.MENU_OFFLINE
+                            elif self.state == S.STATE_MAP_SELECT:
+                                from .level import MAP_LIST
+                                self.selected_map = (self.selected_map - 1) % len(MAP_LIST)
+                            elif self.state == S.STATE_DIFFICULTY:
+                                self.selected_difficulty = max(0, self.selected_difficulty - 1)
+                            elif self.state == S.STATE_MULTIPLAYER_MENU:
+                                self.mp_menu_selection = S.MP_HOST
+                        elif event.value > 0.5:  # Stick down
+                            if self.state == S.STATE_MENU:
+                                self.menu_selection = S.MENU_ONLINE
+                            elif self.state == S.STATE_MAP_SELECT:
+                                from .level import MAP_LIST
+                                self.selected_map = (self.selected_map + 1) % len(MAP_LIST)
+                            elif self.state == S.STATE_DIFFICULTY:
+                                self.selected_difficulty = min(3, self.selected_difficulty + 1)
+                            elif self.state == S.STATE_MULTIPLAYER_MENU:
+                                self.mp_menu_selection = S.MP_JOIN
+                
                 elif event.type == pg.MOUSEBUTTONDOWN:
                     # Handle click for text input activation
                     if self.state == S.STATE_MULTIPLAYER_JOIN:
@@ -1246,8 +1563,9 @@ class Game:
                             self.menu_selection = S.MENU_ONLINE
                         elif event.key == pg.K_RETURN:
                             if self.menu_selection == S.MENU_OFFLINE:
-                                self.reset_run(full=True)
-                                self.state = S.STATE_RUNNING
+                                # Go to map selection for offline mode
+                                self.selected_map = 0
+                                self.state = S.STATE_MAP_SELECT
                             else:
                                 # Go to multiplayer menu
                                 self.state = S.STATE_MULTIPLAYER_MENU
@@ -1257,6 +1575,24 @@ class Game:
                             self.state = S.STATE_DIFFICULTY
                         elif event.key == pg.K_ESCAPE:
                             self.state = S.STATE_TITLE
+                    elif self.state == S.STATE_MAP_SELECT:
+                        from .level import Level, MAP_LIST
+                        num_maps = len(MAP_LIST)
+                        if event.key in (pg.K_UP, pg.K_w):
+                            self.selected_map = (self.selected_map - 1) % num_maps
+                        elif event.key in (pg.K_DOWN, pg.K_s):
+                            self.selected_map = (self.selected_map + 1) % num_maps
+                        elif event.key == pg.K_RETURN:
+                            # Start game with selected map
+                            map_id = MAP_LIST[self.selected_map]
+                            self.reset_run(full=True, map_id=map_id)
+                            self.state = S.STATE_RUNNING
+                        elif event.key == pg.K_d:
+                            # Open difficulty selection
+                            self.selected_difficulty = self.game_difficulty
+                            self.state = S.STATE_DIFFICULTY
+                        elif event.key == pg.K_ESCAPE:
+                            self.state = S.STATE_MENU
                     elif self.state == S.STATE_MULTIPLAYER_MENU:
                         if event.key in (pg.K_UP, pg.K_w):
                             self.mp_menu_selection = S.MP_HOST
@@ -1337,7 +1673,19 @@ class Game:
                             self.state = S.STATE_TITLE
             self.update(dt)
             self.draw()
+        
+        # Cleanup: terminate the network client process
+        self._stop_network_client()
         pg.quit()
+    
+    def _stop_network_client(self):
+        """Stop the networking client process when game closes"""
+        if self.client_process is not None:
+            try:
+                self.client_process.terminate()
+                print("Network client terminated")
+            except Exception as e:
+                print(f"Warning: Could not terminate network client: {e}")
     
     def _try_host_game(self):
         """Try to host a game"""

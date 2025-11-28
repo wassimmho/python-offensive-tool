@@ -1,5 +1,5 @@
-WIDTH = 960
-HEIGHT = 540
+WIDTH = 1280
+HEIGHT = 720
 FPS = 60
 GRAVITY = 2000
 PLAYER_SPEED = 300
@@ -30,6 +30,7 @@ STATE_MULTIPLAYER_HOST = 8  # Hosting lobby
 STATE_MULTIPLAYER_JOIN = 9  # Join screen (enter IP)
 STATE_MULTIPLAYER_LOBBY = 10  # Waiting in lobby
 STATE_MULTIPLAYER_RUNNING = 11  # Multiplayer game running
+STATE_MAP_SELECT = 12  # Map selection for offline mode
 
 # Menu options
 MENU_OFFLINE = 0
@@ -72,6 +73,8 @@ DIFFICULTY_SETTINGS = {
         'chase_range': 300,      # Short chase range
         'jump_chance': 0.3,      # Rarely jumps
         'ai_aggression': 0.3,    # Passive AI
+        'player_health': 5,      # Player max health
+        'enemy_damage': 1,       # Damage per hit
     },
     DIFF_NORMAL: {
         'name': 'Normal',
@@ -85,6 +88,8 @@ DIFFICULTY_SETTINGS = {
         'chase_range': 450,      # Normal chase range
         'jump_chance': 0.5,      # Sometimes jumps
         'ai_aggression': 0.5,    # Balanced AI
+        'player_health': 4,      # Player max health
+        'enemy_damage': 1,       # Damage per hit
     },
     DIFF_HARD: {
         'name': 'Hard',
@@ -98,6 +103,8 @@ DIFFICULTY_SETTINGS = {
         'chase_range': 550,      # Long chase range
         'jump_chance': 0.7,      # Often jumps
         'ai_aggression': 0.75,   # Aggressive AI
+        'player_health': 3,      # Player max health
+        'enemy_damage': 2,       # Damage per hit
     },
     DIFF_SUPERHARD: {
         'name': 'SUPER HARD',
@@ -111,8 +118,15 @@ DIFFICULTY_SETTINGS = {
         'chase_range': 700,      # Very long chase range
         'jump_chance': 0.9,      # Almost always jumps when needed
         'ai_aggression': 1.0,    # Maximum aggression
+        'player_health': 2,      # Player max health
+        'enemy_damage': 2,       # Damage per hit
     },
 }
+
+# Heal drop settings
+HEAL_DROP_INTERVAL = 8.0    # Seconds between heal drops
+HEAL_DROP_AMOUNT = 1        # Health restored per heal
+HEAL_DROP_SPEED = 150       # Fall speed in pixels/sec
 
 # UI colors
 PANEL_BG = (18, 18, 28)
