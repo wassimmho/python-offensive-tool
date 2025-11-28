@@ -21,7 +21,7 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 
 HEADER = 64 
 FORMAT = 'utf-8'
-server = "192.168.100.66"
+server = "only-fountain.gl.at.ply.gg"
 #===========colors============#
 
 RED = "\033[91m"
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     
     #server = input("\nEnter server IP (default: 192.168.100.250): ") or "192.168.100.250"
     #port_input = input("Enter server port (default: 5050): ") or "5050"
-    port = 5050
+    port = 8558
     name =  socket.gethostname()
     
     print(f"\n[*] Connecting to server {server}:{port} as '{name}'...")
