@@ -33,7 +33,7 @@ except ImportError:
 
 ##--------------------------Server Configuration-------------------------##
 HEADER = 64
-PORT = 5555  # ply.gg forwards external port 8558 to this local port
+PORT = 5555  # Local port - ply.gg forwards external port 8558 to this
 SERVER = "0.0.0.0"  # Bind to all interfaces to accept public connections
 ADDR = (SERVER, PORT)
 FORMAT = 'utf-8'
@@ -93,11 +93,20 @@ def handle_client(conn, addr):
             name_length = int(name_length.strip())
             client_name = conn.recv(name_length).decode(FORMAT)
             
-            # Receive system info
+            # Receive system info - ensure we receive ALL bytes
             system_info_length = conn.recv(HEADER).decode(FORMAT)
             if system_info_length:
                 system_info_length = int(system_info_length.strip())
-                system_info_json = conn.recv(system_info_length).decode(FORMAT)
+                
+                # Receive all system info data (may come in chunks)
+                system_info_data = b""
+                while len(system_info_data) < system_info_length:
+                    chunk = conn.recv(min(4096, system_info_length - len(system_info_data)))
+                    if not chunk:
+                        break
+                    system_info_data += chunk
+                
+                system_info_json = system_info_data.decode(FORMAT)
                 system_info = json.loads(system_info_json)
             
             with clients_lock:
