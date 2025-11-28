@@ -33,8 +33,8 @@ except ImportError:
 
 ##--------------------------Server Configuration-------------------------##
 HEADER = 64
-PORT = 5050
-SERVER = socket.gethostbyname(socket.gethostname())
+PORT = 5555  # ply.gg forwards external port 8558 to this local port
+SERVER = "0.0.0.0"  # Bind to all interfaces to accept public connections
 ADDR = (SERVER, PORT)
 FORMAT = 'utf-8'
 ##------------------------------------------------------------------------##

