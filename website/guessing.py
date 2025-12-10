@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-Exhaustive brute-force tester (attempts all combinations for given charset and length range).
-Safe defaults: single-threaded, rate-limited, CSV logging, checkpoint/resume capability.
-
-WARNING: combinations grow exponentially. Use small charset and short lengths first.
-Run only on systems you own or are explicitly authorized to test.
-"""
-
 import itertools
 import requests
 import time
@@ -152,26 +144,26 @@ def selenium_attempt(password):
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-plugins")
         
-        print(f"🔍 Launching Chrome browser for password: {password}")
+        print(f"Launching Chrome browser for password: {password}")
         
         # FIX: Use 'options' parameter (newer Selenium versions)
         from selenium.webdriver.chrome.service import Service
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
-        print(f"🌐 Navigating to: {TARGET_URL}")
+        print(f"Navigating to: {TARGET_URL}")
         driver.get(TARGET_URL)
         
         # Wait for page to load
-        print("⏳ Waiting for page to load...")
+        print("Waiting for page to load...")
         time.sleep(3)
         
         # Debug: Print page title and URL
-        print(f"📄 Page title: {driver.title}")
-        print(f"🔗 Current URL: {driver.current_url}")
+        print(f"Page title: {driver.title}")
+        print(f"Current URL: {driver.current_url}")
         
         # Find input fields - try multiple selectors
-        print("🔎 Looking for form fields...")
+        print("Looking for form fields...")
         selectors_to_try = [
             (By.NAME, "email"),
             (By.NAME, "username"), 
@@ -190,7 +182,7 @@ def selenium_attempt(password):
             try:
                 if not username_field:
                     username_field = driver.find_element(by, value)
-                    print(f"✅ Found username field with: {by}='{value}'")
+                    print(f"Found username field with: {by}='{value}'")
             except Exception as e:
                 continue
                 
@@ -206,38 +198,38 @@ def selenium_attempt(password):
             try:
                 if not password_field:
                     password_field = driver.find_element(by, value)
-                    print(f"✅ Found password field with: {by}='{value}'")
+                    print(f"Found password field with: {by}='{value}'")
                     break
             except Exception as e:
                 continue
         
         if not username_field:
-            print("❌ Could not find username field!")
+            print("Could not find username field!")
             # Take screenshot for debugging
             driver.save_screenshot("debug_no_username_field.png")
             driver.quit()
             return False, None, "selenium_username_field_not_found"
             
         if not password_field:
-            print("❌ Could not find password field!")
+            print("Could not find password field!")
             # Take screenshot for debugging
             driver.save_screenshot("debug_no_password_field.png")
             driver.quit()
             return False, None, "selenium_password_field_not_found"
         
         # Clear and fill form with visible typing
-        print(f"⌨️  Typing username: {USERNAME}")
+        print(f"Typing username: {USERNAME}")
         username_field.clear()
         username_field.send_keys(USERNAME)
         time.sleep(0.5)  # Slightly longer delay to see typing
         
-        print(f"⌨️  Typing password: {password}")
+        print(f"Typing password: {password}")
         password_field.clear()
         password_field.send_keys(password)
         time.sleep(0.5)  # Slightly longer delay to see typing
         
         # Submit form (try multiple methods)
-        print("🚀 Submitting form...")
+        print("Submitting form...")
         submitted = False
         
         try:
@@ -245,9 +237,9 @@ def selenium_attempt(password):
             print("   Trying Enter key...")
             password_field.send_keys(Keys.ENTER)
             submitted = True
-            print("   ✅ Submitted with Enter key")
+            print("   Submitted with Enter key")
         except Exception as e:
-            print(f"   ❌ Enter key failed: {e}")
+            print(f"   Enter key failed: {e}")
         
         if not submitted:
             try:
@@ -268,23 +260,23 @@ def selenium_attempt(password):
                 for by, value in submit_buttons:
                     try:
                         submit_btn = driver.find_element(by, value)
-                        print(f"   ✅ Found submit button with: {by}='{value}'")
+                        print(f"   Found submit button with: {by}='{value}'")
                         submit_btn.click()
                         submitted = True
-                        print(f"   ✅ Clicked submit button")
+                        print(f"   Clicked submit button")
                         break
                     except Exception as e:
                         continue
             except Exception as e:
-                print(f"   ❌ Submit button click failed: {e}")
+                print(f"   Submit button click failed: {e}")
         
         # Wait for response
-        print("⏳ Waiting for response...")
+        print("Waiting for response...")
         time.sleep(3)
         
         # Debug: Print new page info
-        print(f"📄 New page title: {driver.title}")
-        print(f"🔗 New URL: {driver.current_url}")
+        print(f"New page title: {driver.title}")
+        print(f"New URL: {driver.current_url}")
         
         # Check for success indicators
         success_indicators = []
@@ -294,7 +286,7 @@ def selenium_attempt(password):
         original_url = TARGET_URL.lower()
         if current_url != original_url:
             success_indicators.append(f"redirected_to_{current_url}")
-            print(f"🔄 Redirect detected: {current_url}")
+            print(f"Redirect detected: {current_url}")
         
         # 2) Check for success elements in page
         page_source = driver.page_source.lower()
@@ -302,26 +294,26 @@ def selenium_attempt(password):
         for keyword in success_keywords:
             if keyword in page_source:
                 success_indicators.append(f"page_contains_{keyword}")
-                print(f"✅ Success keyword found: {keyword}")
+                print(f"Success keyword found: {keyword}")
         
         # 3) Check for session cookies
         cookies = driver.get_cookies()
         session_cookies = [cookie for cookie in cookies if 'session' in cookie['name'].lower()]
         if session_cookies:
             success_indicators.append("session_cookie_set")
-            print(f"🍪 Session cookie found: {[c['name'] for c in session_cookies]}")
+            print(f"Session cookie found: {[c['name'] for c in session_cookies]}")
         
         # 4) Check page title for success indicators
         page_title = driver.title.lower()
         if any(term in page_title for term in ["dashboard", "welcome", "profile", "home"]):
             success_indicators.append("successful_page_title")
-            print(f"📝 Success page title: {driver.title}")
+            print(f"Success page title: {driver.title}")
         
         # 5) Check for error messages
         error_indicators = ["invalid", "wrong", "incorrect", "error", "failed"]
         has_errors = any(error in page_source for error in error_indicators)
         if has_errors:
-            print("❌ Error message detected on page")
+            print("Error message detected on page")
         
         success = len(success_indicators) > 0
         reason = "selenium_success" if success else "selenium_failed"
@@ -333,22 +325,22 @@ def selenium_attempt(password):
         # Take final screenshot for debugging
         if success:
             driver.save_screenshot(f"success_{password}.png")
-            print(f"📸 Success screenshot saved: success_{password}.png")
+            print(f"Success screenshot saved: success_{password}.png")
         else:
             driver.save_screenshot(f"failed_{password}.png")
-            print(f"📸 Failure screenshot saved: failed_{password}.png")
+            print(f"Failure screenshot saved: failed_{password}.png")
         
-        print(f"🎯 Result for '{password}': success={success}, reason={reason}")
+        print(f"Result for '{password}': success={success}, reason={reason}")
         driver.quit()
         return success, 200 if success else 401, reason
         
     except Exception as e:
-        print(f"💥 Selenium error for '{password}': {str(e)}")
+        print(f"Selenium error for '{password}': {str(e)}")
         if driver:
             try:
                 # Take error screenshot
                 driver.save_screenshot(f"error_{password}.png")
-                print(f"📸 Error screenshot saved: error_{password}.png")
+                print(f"Error screenshot saved: error_{password}.png")
                 driver.quit()
             except:
                 pass
