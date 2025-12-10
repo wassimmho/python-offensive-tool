@@ -8,11 +8,12 @@ import sqlite3
 import hashlib
 import itertools
 import math
+import subprocess
+import requests
 from Function_Net.sending import files_to_base64, base64_to_file, files_to_base64_archive, base64_archive_to_files, selecting_files
 from Function_Net.recieving import receive_and_decompress_file, receive_multiple_files, receive_file_simple
 from tkinter import Tk, filedialog
 from OFFLINE_bruteforce.Mohamed.socket_client import brute_force_discovery
-
 ##--------------------------ANSI escape codes-----------------------------##
 RED = "\033[91m"
 GREEN = "\033[92m"
@@ -43,6 +44,7 @@ clients = {}
 clients_lock = threading.Lock()
 client_id_counter = 0
 client_id_lock = threading.Lock()
+web_process = None
 ##------------------------------------------------------------##
 
 ##--------------Hash Discovery Variables----------------------##
@@ -117,7 +119,9 @@ def handle_client(conn, addr):
                     "cpu": system_info.get("cpu", "Unknown") if system_info else "Unknown",
                     "cpu_rating": system_info.get("cpu_rating", 0) if system_info else 0,
                     "gpu": system_info.get("gpu", {}) if system_info else {},
-                    "gpu_rating": system_info.get("gpu", {}).get("rating", 0) if system_info else 0
+                    "gpu_rating": system_info.get("gpu", {}).get("rating", 0) if system_info else 0,
+                    "cmd_event": threading.Event(),
+                    "last_output": ""
                 }
             
             cpu_info = system_info.get("cpu", "Unknown") if system_info else "Unknown"
@@ -258,7 +262,18 @@ def handle_client(conn, addr):
                                 else:
                                     print(f"\n{RED}Failed to receive file {filename}: {result['message']}{RESET}")
                                     print(f"{RED}Server> {RESET}", end="", flush=True)
-                    
+                        
+                        # Handle CMD_OUTPUT messages
+                        elif message.get("type") == "CMD_OUTPUT":
+                            output = message.get("output", "")
+                            cwd = message.get("cwd", "")
+                            
+                            with clients_lock:
+                                if addr in clients:
+                                    clients[addr]["last_output"] = output
+                                    clients[addr]["cwd"] = cwd
+                                    clients[addr]["cmd_event"].set()
+
                     except json.JSONDecodeError:
                         pass
                 
@@ -392,6 +407,7 @@ def PrintBanner():
     print("  │   broadcast         - Send task to all connected clients                │")
     print("  │   send file         - Send file to all connected clients                │")
     print("  │   send file <ip>    - Send file to a specific client                    │")
+    print("  │   cmd <ip>          - Open remote shell on specific client              │")
     print("  │   disconnect <ip>   - Disconnect specific client                        │")
     print("  │   disconnect all    - Disconnect all clients                            │")
     print("  │                                                                         │")
@@ -400,6 +416,11 @@ def PrintBanner():
     print("  │   hash list         - View all research entries in database             │")
     print("  │   hash crack        - Start distributed pattern search                  │")
     print("  │   hash status       - Show cracked patterns and task status             │")
+    print("  │                                                                         │")
+    print("  │ Web Application Testing:                                                │")
+    print("  │   web start         - Start the target Flask application                │")
+    print("  │   web check         - Check if the target application is running        │")
+    print("  │   web attack        - Start the online brute force attack               │")
     print("  │                                                                         │")
     print("  │ Utility:                                                                │")
     print("  │   clear             - Clear the terminal screen                         │")
@@ -530,6 +551,123 @@ def start():
         print("\nKeyboard Interrupt detected. Shutting down the server...")
     finally:
         server.close()
+
+
+def send_task_to_specific_client(target_ip):
+    # Find clients with this IP
+    target_clients = []
+    with clients_lock:
+        for addr, info in clients.items():
+            if addr[0] == target_ip:
+                target_clients.append(info)
+    
+    if not target_clients:
+        print(f"{YELLOW}No client found with IP: {target_ip}{RESET}")
+        return
+
+    # Select hash
+    db = ResearchDBManager()
+    entries = db.get_all_entries()
+    
+    if not entries:
+        print(f"{YELLOW}No hash entries found in database. Use 'hash add' to add entries first.{RESET}")
+        return
+    
+    # Display available hashes
+    print(f"\n{BLUE}┌{'─'*78}┐{RESET}")
+    print(f"{BLUE}│{RESET} 📋 SELECT A HASH TO SEND                                                   {BLUE}│{RESET}")
+    print(f"{BLUE}├{'─'*78}┤{RESET}")
+    
+    for i, (entry_id, encrypted) in enumerate(entries, 1):
+        print(f"{BLUE}│{RESET}   [{YELLOW}{i}{RESET}] {GREEN}{entry_id:<20}{RESET} -> {YELLOW}{encrypted}{RESET}")
+    
+    print(f"{BLUE}└{'─'*78}┘{RESET}")
+    
+    # Get user selection
+    try:
+        selection = input(f"{BLUE}Enter the number of the hash to send (1-{len(entries)}): {RESET}").strip()
+        selection_idx = int(selection) - 1
+        
+        if selection_idx < 0 or selection_idx >= len(entries):
+            print(f"{RED}Invalid selection. Please enter a number between 1 and {len(entries)}.{RESET}")
+            return
+        
+        selected_entry_id, selected_hash = entries[selection_idx]
+        print(f"\n{GREEN}Selected hash: {selected_hash} (Entry: {selected_entry_id}){RESET}")
+        
+    except ValueError:
+        print(f"{RED}Invalid input. Please enter a valid number.{RESET}")
+        return
+
+    # Send to target clients
+    task_data = json.dumps({
+        "type": "BROADCASTING",
+        "hash_value": selected_hash,
+        "entry_id": selected_entry_id
+    })
+    
+    sent_count = 0
+    for client in target_clients:
+        if send_message(client["conn"], task_data):
+            sent_count += 1
+            
+    print(f"{GREEN}Task sent to {sent_count} client(s) at {target_ip}.{RESET}")
+
+
+def cmd_shell(target_ip):
+    # Find clients with this IP
+    target_client = None
+    target_addr = None
+    with clients_lock:
+        for addr, info in clients.items():
+            if addr[0] == target_ip:
+                target_client = info
+                target_addr = addr
+                break # Just take the first one for now
+    
+    if not target_client:
+        print(f"{YELLOW}No client found with IP: {target_ip}{RESET}")
+        return
+
+    print(f"\n{GREEN}Connected to {target_ip}. Entering remote shell...{RESET}")
+    print(f"{YELLOW}Type 'exit' to return to server menu.{RESET}")
+    
+    conn = target_client["conn"]
+    cmd_event = target_client["cmd_event"]
+    
+    current_cwd = target_client.get("cwd", "~")
+    
+    while True:
+        try:
+            command = input(f"{BLUE}shell@{target_ip}:{current_cwd}> {RESET}").strip()
+            
+            if command.lower() == "exit":
+                break
+            
+            if not command:
+                continue
+                
+            # Clear event before sending
+            cmd_event.clear()
+            
+            # Send command
+            msg = json.dumps({"type": "CMD_EXEC", "command": command})
+            if not send_message(conn, msg):
+                print(f"{RED}Failed to send command. Connection might be lost.{RESET}")
+                break
+                
+            # Wait for response
+            if cmd_event.wait(timeout=30): # 30 seconds timeout
+                with clients_lock:
+                    output = clients[target_addr]["last_output"]
+                    current_cwd = clients[target_addr].get("cwd", current_cwd)
+                print(output)
+            else:
+                print(f"{RED}Timeout waiting for response.{RESET}")
+                
+        except KeyboardInterrupt:
+            break
+    print(f"\n{YELLOW}Exiting remote shell...{RESET}")
 
 
 def broadcating_BrutForcing():
@@ -987,6 +1125,20 @@ def interactive_terminal():
                     send_thread.start()
                 else:
                     print(f"{YELLOW}No file selected.{RESET}")
+            elif command.startswith("send "):
+                args = command.split(maxsplit=1)
+                if len(args) == 2:
+                    target_ip = args[1].strip()
+                    send_task_to_specific_client(target_ip)
+                else:
+                    print(f"{YELLOW}Usage: send <ip>{RESET}")
+            elif command.startswith("cmd "):
+                args = command.split(maxsplit=1)
+                if len(args) == 2:
+                    target_ip = args[1].strip()
+                    cmd_shell(target_ip)
+                else:
+                    print(f"{YELLOW}Usage: cmd <ip>{RESET}")
             elif command == "broadcast":
                 broadcating_BrutForcing()
             
@@ -1001,6 +1153,98 @@ def interactive_terminal():
                 hash_status()
             elif command.startswith("hash"):
                 print(f"{YELLOW}Unknown hash command. Available: hash add, hash list, hash crack, hash status{RESET}")
+            # Web Application Testing Commands
+            elif command == "web start":
+                global web_process
+                if web_process and web_process.poll() is None:
+                    print(f"{YELLOW}Web application is already running (PID: {web_process.pid}).{RESET}")
+                else:
+                    try:
+                        # Determine path to Signup.py
+                        base_dir = os.path.dirname(os.path.abspath(__file__))
+                        script_path = os.path.join(base_dir, "ONLINE_bruteforce", "Signup.py")
+                        
+                        if os.path.exists(script_path):
+                            # Run in the directory of the script to ensure it finds its own dependencies/templates
+                            web_process = subprocess.Popen([sys.executable, "Signup.py"], cwd=os.path.dirname(script_path))
+                            print(f"{GREEN}Web application started (PID: {web_process.pid}).{RESET}")
+                            print(f"Access it at: http://127.0.0.1:5000")
+                        else:
+                            print(f"{RED}Could not find Signup.py at {script_path}{RESET}")
+                    except Exception as e:
+                        print(f"{RED}Failed to start web application: {e}{RESET}")
+
+            elif command == "web check":
+                try:
+                    response = requests.get("http://127.0.0.1:5000", timeout=2)
+                    if response.status_code == 200:
+                        print(f"{GREEN}Web application is LIVE (Status: {response.status_code}).{RESET}")
+                    else:
+                        print(f"{YELLOW}Web application returned status: {response.status_code}{RESET}")
+                except requests.exceptions.ConnectionError:
+                    print(f"{RED}Web application is DOWN (Connection refused).{RESET}")
+                except Exception as e:
+                    print(f"{RED}Error checking web application: {e}{RESET}")
+
+            elif command == "web attack":
+                try:
+                    base_dir = os.path.dirname(os.path.abspath(__file__))
+                    script_path = os.path.join(base_dir, "ONLINE_bruteforce", "guessing.py")
+                    
+                    if os.path.exists(script_path):
+                        print(f"\n{BLUE}┌{'─'*78}┐{RESET}")
+                        print(f"{BLUE}│{RESET} ⚔️  ATTACK CONFIGURATION                                                    {BLUE}│{RESET}")
+                        print(f"{BLUE}├{'─'*78}┤{RESET}")
+                        
+                        # 1. Choose Attack Mode
+                        print(f"{BLUE}│{RESET} Select Attack Mode:                                                       {BLUE}│{RESET}")
+                        print(f"{BLUE}│{RESET}   1. Standard (Requests)                                                  {BLUE}│{RESET}")
+                        print(f"{BLUE}│{RESET}   2. Selenium (Browser Automation)                                        {BLUE}│{RESET}")
+                        print(f"{BLUE}│{RESET}   3. Hybrid (Requests + Selenium Fallback)                                {BLUE}│{RESET}")
+                        
+                        mode_choice = input(f"{BLUE}│{RESET} Choice [1]: ").strip()
+                        attack_args = []
+                        
+                        if mode_choice == "2":
+                            attack_args.append("--selenium")
+                            mode_str = "Selenium"
+                        elif mode_choice == "3":
+                            attack_args.append("--hybrid")
+                            mode_str = "Hybrid"
+                        else:
+                            mode_str = "Standard"
+                            
+                        # 2. Distributed Option
+                        print(f"{BLUE}│{RESET}                                                                         {BLUE}│{RESET}")
+                        dist_choice = input(f"{BLUE}│{RESET} Enable Distributed Mode (Celery)? (y/N): ").strip().lower()
+                        
+                        if dist_choice == 'y':
+                            attack_args.append("--distributed")
+                            workers = input(f"{BLUE}│{RESET} Number of workers [4]: ").strip()
+                            if workers and workers.isdigit():
+                                attack_args.extend(["--workers", workers])
+                            mode_str += " (Distributed)"
+                        
+                        print(f"{BLUE}└{'─'*78}┘{RESET}")
+                        
+                        print(f"{BLUE}Starting online brute force attack ({mode_str})...{RESET}")
+                        
+                        # Construct command
+                        cmd_str = f'"{sys.executable}" guessing.py {" ".join(attack_args)}'
+                        
+                        # Run in a new console window
+                        if os.name == 'nt':
+                            subprocess.Popen(f'start cmd /k "{cmd_str}"', shell=True, cwd=os.path.dirname(script_path))
+                        else:
+                            # For Linux/Mac
+                            subprocess.Popen([sys.executable, "guessing.py"] + attack_args, cwd=os.path.dirname(script_path))
+                            
+                        print(f"{GREEN}Attack script launched in new window.{RESET}")
+                    else:
+                        print(f"{RED}Could not find guessing.py at {script_path}{RESET}")
+                except Exception as e:
+                    print(f"{RED}Failed to start attack: {e}{RESET}")
+
             elif command == "":
                 pass  # Empty command, do nothing
             else:
