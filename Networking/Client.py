@@ -16,7 +16,7 @@ from OFFLINE_bruteforce.Mohamed import socket_client
 
 HEADER = 64 
 FORMAT = 'utf-8'
-server = "192.168.161.1"
+server = "10.78.179.181"
 port = 5555
 
 # Global flags for stopping work
