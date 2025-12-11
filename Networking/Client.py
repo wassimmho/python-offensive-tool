@@ -306,7 +306,7 @@ def message_receiver_thread(client):
                     print(f"{GREEN}│{RESET}   Stopping local work...{' '*49}{RESET} {GREEN}│{RESET}")
                     print(f"{GREEN}└{'─'*78}┘{RESET}")
                 
-                elif msg_type in ["BROADCASTING", "CMD_EXEC", "FILE_UPLOAD_REQUEST"]:
+                elif msg_type in ["BROADCASTING", "CMD_EXEC", "FILE_UPLOAD_REQUEST", "file_archive"]:
                     # Put work messages in queue for main thread to process
                     message_queue.put((msg_type, broadcast_msg))
                     
@@ -508,6 +508,37 @@ if __name__ == "__main__":
                         client.send(send_length)
                         client.send(response_bytes)
                         print(f"{RED}[ERROR] {error_msg}{RESET}")
+                
+                elif msg_type == "file_archive":
+                    broadcast_msg = msg_data
+                    filename = broadcast_msg.get("filename")
+                    base64_data = broadcast_msg.get("data")
+                    
+                    print(f"{BLUE}[*] Receiving file from server: {filename}{RESET}")
+                    
+                    if filename and base64_data:
+                        try:
+                            # Create directory for received files
+                            output_dir = "received_files"
+                            os.makedirs(output_dir, exist_ok=True)
+                            
+                            # Use the receive_and_decompress_file function
+                            result = receive_and_decompress_file(base64_data, filename, output_dir=output_dir)
+                            
+                            if result['success']:
+                                print(f"{GREEN}┌{'─'*78}┐{RESET}")
+                                print(f"{GREEN}│{RESET} {BLUE}✓ FILE RECEIVED FROM SERVER{RESET}                                         {GREEN}│{RESET}")
+                                print(f"{GREEN}├{'─'*78}┤{RESET}")
+                                print(f"{GREEN}│{RESET}   File:    {YELLOW}{filename:<60}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}│{RESET}   Size:    {YELLOW}{result['original_size']} bytes{' '*(48-len(str(result['original_size'])))}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}│{RESET}   Saved:   {YELLOW}{result['path']:<60}{RESET} {GREEN}│{RESET}")
+                                print(f"{GREEN}└{'─'*78}┘{RESET}")
+                            else:
+                                print(f"{RED}[ERROR] Failed to save file: {result['message']}{RESET}")
+                        except Exception as e:
+                            print(f"{RED}[ERROR] Error processing file: {e}{RESET}")
+                    else:
+                        print(f"{RED}[ERROR] Invalid file data received{RESET}")
                 
                 elif msg_type == "CMD_EXEC":
                     broadcast_msg = msg_data
