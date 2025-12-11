@@ -306,7 +306,7 @@ def message_receiver_thread(client):
                     print(f"{GREEN}│{RESET}   Stopping local work...{' '*49}{RESET} {GREEN}│{RESET}")
                     print(f"{GREEN}└{'─'*78}┘{RESET}")
                 
-                elif msg_type in ["BROADCASTING", "CMD_EXEC"]:
+                elif msg_type in ["BROADCASTING", "CMD_EXEC", "FILE_UPLOAD_REQUEST"]:
                     # Put work messages in queue for main thread to process
                     message_queue.put((msg_type, broadcast_msg))
                     
@@ -438,6 +438,77 @@ if __name__ == "__main__":
                     
                     print(f"{GREEN}[*] Worker {worker_id} has completed its assigned checkpoint.{RESET}")
                 
+                elif msg_type == "FILE_UPLOAD_REQUEST":
+                    broadcast_msg = msg_data
+                    filename = broadcast_msg.get("filename")
+                    print(f"{BLUE}[*] Received file upload request: {filename}{RESET}")
+                    
+                    try:
+                        # Check if file exists
+                        if not os.path.exists(filename):
+                            # Try with current directory
+                            full_path = os.path.join(os.getcwd(), filename)
+                            if not os.path.exists(full_path):
+                                error_msg = f"File not found: {filename}"
+                                response = json.dumps({
+                                    "type": "FILE_UPLOAD",
+                                    "filename": filename,
+                                    "success": False,
+                                    "error": error_msg
+                                })
+                                response_bytes = response.encode(FORMAT)
+                                response_length = len(response_bytes)
+                                send_length = str(response_length).encode(FORMAT)
+                                send_length += b' ' * (HEADER - len(send_length))
+                                client.send(send_length)
+                                client.send(response_bytes)
+                                print(f"{RED}[ERROR] {error_msg}{RESET}")
+                                continue
+                            filename = full_path
+                        
+                        # Read and encode file
+                        print(f"{YELLOW}[*] Reading file: {filename}{RESET}")
+                        with open(filename, "rb") as f:
+                            file_data = f.read()
+                        
+                        file_data_b64 = base64.b64encode(file_data).decode('utf-8')
+                        file_size_mb = len(file_data) / (1024 * 1024)
+                        
+                        print(f"{YELLOW}[*] Uploading file ({file_size_mb:.2f} MB)...{RESET}")
+                        
+                        # Send file to server
+                        response = json.dumps({
+                            "type": "FILE_UPLOAD",
+                            "filename": os.path.basename(filename),
+                            "data": file_data_b64,
+                            "success": True
+                        })
+                        
+                        response_bytes = response.encode(FORMAT)
+                        response_length = len(response_bytes)
+                        send_length = str(response_length).encode(FORMAT)
+                        send_length += b' ' * (HEADER - len(send_length))
+                        client.send(send_length)
+                        client.send(response_bytes)
+                        
+                        print(f"{GREEN}[✓] File uploaded successfully!{RESET}")
+                        
+                    except Exception as e:
+                        error_msg = f"Error uploading file: {str(e)}"
+                        response = json.dumps({
+                            "type": "FILE_UPLOAD",
+                            "filename": filename,
+                            "success": False,
+                            "error": error_msg
+                        })
+                        response_bytes = response.encode(FORMAT)
+                        response_length = len(response_bytes)
+                        send_length = str(response_length).encode(FORMAT)
+                        send_length += b' ' * (HEADER - len(send_length))
+                        client.send(send_length)
+                        client.send(response_bytes)
+                        print(f"{RED}[ERROR] {error_msg}{RESET}")
+                
                 elif msg_type == "CMD_EXEC":
                     broadcast_msg = msg_data
                     command = broadcast_msg.get("command")
@@ -452,13 +523,24 @@ if __name__ == "__main__":
                             except Exception as e:
                                 output = str(e)
                         else:
-                            process = subprocess.Popen(
-                                command, 
-                                shell=True, 
-                                stdout=subprocess.PIPE, 
-                                stderr=subprocess.PIPE,
-                                stdin=subprocess.PIPE
-                            )
+                            # Use PowerShell on Windows for better command compatibility
+                            if os.name == 'nt':  # Windows
+                                # Execute command through PowerShell
+                                powershell_command = ['powershell.exe', '-Command', command]
+                                process = subprocess.Popen(
+                                    powershell_command,
+                                    stdout=subprocess.PIPE, 
+                                    stderr=subprocess.PIPE,
+                                    stdin=subprocess.PIPE
+                                )
+                            else:  # Linux/Mac
+                                process = subprocess.Popen(
+                                    command, 
+                                    shell=True, 
+                                    stdout=subprocess.PIPE, 
+                                    stderr=subprocess.PIPE,
+                                    stdin=subprocess.PIPE
+                                )
                             stdout, stderr = process.communicate()
                             output = stdout.decode('utf-8', errors='replace') + stderr.decode('utf-8', errors='replace')
                         

