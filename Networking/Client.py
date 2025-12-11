@@ -16,7 +16,8 @@ from OFFLINE_bruteforce.Mohamed import socket_client
 
 HEADER = 64 
 FORMAT = 'utf-8'
-server = "insqllgrp3.loclx.io"
+server = "192.168.161.1"
+port = 5555
 
 # Global flags for stopping work
 stop_work_flag = False
@@ -327,23 +328,7 @@ if __name__ == "__main__":
     print("              CLIENT - Connecting to Server")
     print("═" * 80)
     
-    print("\nSelect Connection Mode:")
-    print("1. Local Network (192.168.100.66:5555)")
-    print("2. Public Playit.gg (because-institution.gl.at.ply.gg:2270)")
-    print("3. Custom IP/Port")
-    
-    choice = input("\nEnter choice (1-3) [1]: ").strip()
-    
-    if choice == "2":
-        server = "because-institution.gl.at.ply.gg"
-        port = 2270
-    elif choice == "3":
-        server = input("Enter server IP: ").strip()
-        port_str = input("Enter server port: ").strip()
-        port = int(port_str) if port_str.isdigit() else 5555
-    else:
-        server = "192.168.100.66"
-        port = 5555
+   
 
     name =  socket.gethostname()
     
